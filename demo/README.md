@@ -23,3 +23,20 @@ python3 scripts/replay_examples.py
 
 再検証では生成AIを呼び出さず、保存リクエストから再生成した証明と
 保存証明の一致を調べたうえでLeanを実行する。環境と入力のハッシュも検査する。
+
+## 拡張版のAI生成例
+
+`recurrence.target.json` はLaTeXの一般三項漸化式に同類項を加えた入力を
+固定ASTへ変換したものです。
+
+\[
+J_{n-1}(x)+J_{n+1}(x)+J_n(x)=\left(\frac{2n}{x}+1\right)J_n(x),
+\qquad n\in\mathbb Z,\ x>0.
+\]
+
+`recurrence-direct` と `recurrence-steps` は、同じ入力について実際に
+Codex CLIを呼び出した候補です。段階経路では漸化式の適用と因子の整理を
+個別に証明しています。両経路ともLeanの検査と標準3公理の監査を通過しました。
+
+`numeric-candidates.json` は係数を3に変えた誤漸化式の数値診断です。
+この記録の状態は `unresolved` で、数値差のある点を候補として保存しています。

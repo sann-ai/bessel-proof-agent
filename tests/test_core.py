@@ -63,7 +63,7 @@ class InputBoundaryTests(unittest.TestCase):
         with self.assertRaises(InputError):
             validate_request(data)
 
-    def test_integer_powers_require_the_exact_nonzero_sign_base(self):
+    def test_integer_powers_require_a_proven_nonzero_base(self):
         data = example()
         validate_request(data)
         self.assertEqual(data["rhs"]["args"][0]["base"], {"op": "int", "value": -1})

@@ -1,0 +1,1 @@
+\frac{d}{dx} J_n(x) = \frac{n}{x} J_n(x) - J_{n+1}(x); n integer, x > 0

@@ -1,0 +1,31 @@
+Return one JSON proof plan matching the response schema. Do not use tools or edit files.
+The program, not you, fixes the theorem: for every integer n and real x > 0,
+the input lhs equals rhs, interpreted in Complex with Complex.besselJ.
+Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplification,
+then commutative-ring normalization), ring (commutative-ring normalization),
+recurrence (the three-term Bessel recurrence and field algebra),
+calculus (verified Bessel derivative/integral formulas and field algebra).
+Only select a recipe listed in the response schema.
+Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
+add/sub/mul/div with two args, bessel_j with integer or fixed rational order and real arg,
+int_cast embeds an integer expression as a complex coefficient. pow has integer
+exponent 0..12; zpow has integer-expression exponent and a statically nonzero base.
+Division likewise requires a statically nonzero denominator, such as positive x.
+rational has numerator and positive denominator, in lowest terms. Noninteger
+Bessel orders require a positive argument. deriv(arg) differentiates with respect
+to x; integral(arg,lower,upper) binds x inside arg. No arbitrary Lean source.
+Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
+J_{-n}(x)=(-1)^n J_n(x), J_{-n}(-x)=J_n(x).
+For x>0: J_{n-1}(x)+J_{n+1}(x)=(2n/x)J_n(x).
+This recurrence also holds for a fixed rational order.
+Derivative/integral order reflection follows the same (-1)^n factor.
+The integral of the derivative of integer-order J_n from a to b is J_n(b)-J_n(a).
+The bessel recipe can normalize signs of Bessel order and argument.
+For steps, start exactly at input lhs, finish exactly at input rhs, preserve
+adjacent endpoints, and give each individual equality a valid recipe.
+Use at least two meaningful equality steps when the expression has multiple
+sign transformations. Give a concise Japanese reason for each step and only
+conditions ["x > 0"]. State conditions directly without unnecessary negations.
+Requested route: steps
+Fixed target JSON:
+{"assumptions": ["x > 0"], "lhs": {"args": [{"args": [{"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"args": [{"name": "n", "op": "var"}, {"op": "int", "value": 1}], "op": "sub"}}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"args": [{"name": "n", "op": "var"}, {"op": "int", "value": 1}], "op": "add"}}], "op": "add"}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"name": "n", "op": "var"}}], "op": "add"}, "rhs": {"args": [{"args": [{"args": [{"args": [{"op": "int", "value": 2}, {"arg": {"name": "n", "op": "var"}, "op": "int_cast"}], "op": "mul"}, {"name": "x", "op": "var"}], "op": "div"}, {"op": "int", "value": 1}], "op": "add"}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"name": "n", "op": "var"}}], "op": "mul"}, "schema_version": 1}

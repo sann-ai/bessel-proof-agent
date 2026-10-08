@@ -4,7 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from .core import InputError, load_json, replay, verify
+from .core import InputError, NeedsConditions, RECIPES, load_json, replay, verify
+from .parser import parse_identity
 
 
 def main() -> int:
@@ -14,15 +15,47 @@ def main() -> int:
     check.add_argument("input", type=Path)
     check.add_argument("--output", type=Path, required=True)
     check.add_argument("--timeout", type=float, default=60)
+    check.add_argument("--format", choices=("auto", "json", "text"), default="auto")
+    check.add_argument("--conditions", help="For text input, for example: n integer, x > 0")
+    check.add_argument("--recipe", choices=tuple(RECIPES))
+    translate = subparsers.add_parser("parse", help="Translate a supported text/LaTeX equation into a fixed target.")
+    translate.add_argument("input", type=Path)
+    translate.add_argument("--conditions")
+    translate.add_argument("--output", type=Path)
     again = subparsers.add_parser("replay")
     again.add_argument("directory", type=Path)
     again.add_argument("--timeout", type=float, default=60)
     args = parser.parse_args()
-    if not 0 < args.timeout <= 600:
+    if not 0 < getattr(args, "timeout", 60) <= 600:
         parser.error("--timeout must be positive and at most 600 seconds")
     try:
-        result = (verify(load_json(args.input), args.output, args.timeout)
-                  if args.command == "verify" else replay(args.directory, args.timeout))
+        if args.command == "parse":
+            target = parse_identity(args.input.read_text(encoding="utf-8"), args.conditions)
+            encoded = json.dumps(target, ensure_ascii=False, indent=2) + "\n"
+            if args.output:
+                with args.output.open("x", encoding="utf-8") as stream:
+                    stream.write(encoded)
+            print(encoded, end="")
+            return 0
+        if args.command == "replay":
+            result = replay(args.directory, args.timeout)
+        else:
+            is_json = args.format == "json" or (args.format == "auto" and args.input.suffix.lower() == ".json")
+            if is_json:
+                if args.conditions:
+                    raise InputError("JSON assumptions are fixed in the input; use --conditions with text input.")
+                data = load_json(args.input)
+            else:
+                data = parse_identity(args.input.read_text(encoding="utf-8"), args.conditions)
+                data["proof"] = {"mode": "direct", "recipe": args.recipe or "bessel"}
+            if is_json and args.recipe:
+                if not isinstance(data, dict) or "proof" in data:
+                    raise InputError("Use --recipe only for a target JSON that has no proof candidate.")
+                data["proof"] = {"mode": "direct", "recipe": args.recipe}
+            result = verify(data, args.output, args.timeout)
+    except NeedsConditions as exc:
+        print(json.dumps({"status": "needs_conditions", "reason": str(exc)}, ensure_ascii=False))
+        return 1
     except (InputError, OSError) as exc:
         print(json.dumps({"status": "unresolved", "reason": "input_or_environment_error",
                           "detail": str(exc)}, ensure_ascii=False))

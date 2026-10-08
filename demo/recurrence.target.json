@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "assumptions": [
+    "x > 0"
+  ],
+  "lhs": {
+    "op": "add",
+    "args": [
+      {
+        "op": "add",
+        "args": [
+          {
+            "op": "bessel_j",
+            "order": {
+              "op": "sub",
+              "args": [
+                {
+                  "op": "var",
+                  "name": "n"
+                },
+                {
+                  "op": "int",
+                  "value": 1
+                }
+              ]
+            },
+            "arg": {
+              "op": "var",
+              "name": "x"
+            }
+          },
+          {
+            "op": "bessel_j",
+            "order": {
+              "op": "add",
+              "args": [
+                {
+                  "op": "var",
+                  "name": "n"
+                },
+                {
+                  "op": "int",
+                  "value": 1
+                }
+              ]
+            },
+            "arg": {
+              "op": "var",
+              "name": "x"
+            }
+          }
+        ]
+      },
+      {
+        "op": "bessel_j",
+        "order": {
+          "op": "var",
+          "name": "n"
+        },
+        "arg": {
+          "op": "var",
+          "name": "x"
+        }
+      }
+    ]
+  },
+  "rhs": {
+    "op": "mul",
+    "args": [
+      {
+        "op": "add",
+        "args": [
+          {
+            "op": "div",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "op": "int",
+                    "value": 2
+                  },
+                  {
+                    "op": "int_cast",
+                    "arg": {
+                      "op": "var",
+                      "name": "n"
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "var",
+                "name": "x"
+              }
+            ]
+          },
+          {
+            "op": "int",
+            "value": 1
+          }
+        ]
+      },
+      {
+        "op": "bessel_j",
+        "order": {
+          "op": "var",
+          "name": "n"
+        },
+        "arg": {
+          "op": "var",
+          "name": "x"
+        }
+      }
+    ]
+  }
+}

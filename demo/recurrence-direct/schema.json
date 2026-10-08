@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "direct"
+      ]
+    },
+    "recipe": {
+      "type": "string",
+      "enum": [
+        "bessel",
+        "ring",
+        "field",
+        "recurrence",
+        "calculus"
+      ]
+    }
+  },
+  "required": [
+    "mode",
+    "recipe"
+  ],
+  "additionalProperties": false
+}

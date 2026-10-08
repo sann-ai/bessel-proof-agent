@@ -1,0 +1,1 @@
+J_{n-1}(x) + J_{n+1}(x) = \frac{2n}{x} J_n(x); n integer, x > 0

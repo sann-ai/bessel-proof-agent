@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-from .core import NeedsConditions, load_json, validate_request, verify
+from .core import RECIPES, NeedsConditions, load_json, validate_request, verify
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +25,7 @@ def obj(properties: dict) -> dict:
 
 def output_schema(route: str) -> dict:
     """Structured generation is separate from the verifier's strict parser."""
-    recipe = {"type": "string", "enum": ["bessel", "ring"]}
+    recipe = {"type": "string", "enum": list(RECIPES)}
     if route == "direct":
         return obj({"mode": {"type": "string", "enum": ["direct"]}, "recipe": recipe})
     ref = {"$ref": "#/$defs/expr"}
@@ -33,12 +33,15 @@ def output_schema(route: str) -> dict:
         obj({"op": {"const": "int"}, "value": {"type": "integer"}}),
         obj({"op": {"const": "var"}, "name": {"type": "string", "enum": ["n", "x"]}}),
         obj({"op": {"const": "neg"}, "arg": ref}),
-        obj({"op": {"type": "string", "enum": ["add", "sub", "mul"]},
+        obj({"op": {"type": "string", "enum": ["add", "sub", "mul", "div"]},
              "args": {"type": "array", "items": ref, "minItems": 2, "maxItems": 2}}),
         obj({"op": {"const": "bessel_j"}, "order": ref, "arg": ref}),
-        obj({"op": {"const": "zpow"},
-             "base": obj({"op": {"const": "int"}, "value": {"type": "integer", "enum": [-1]}}),
-             "exponent": ref}),
+        obj({"op": {"const": "zpow"}, "base": ref, "exponent": ref}),
+        obj({"op": {"const": "pow"}, "base": ref, "exponent": {"type": "integer", "minimum": 0, "maximum": 12}}),
+        obj({"op": {"const": "int_cast"}, "arg": ref}),
+        obj({"op": {"const": "rational"}, "numerator": {"type": "integer"}, "denominator": {"type": "integer", "minimum": 1}}),
+        obj({"op": {"const": "deriv"}, "arg": ref}),
+        obj({"op": {"const": "integral"}, "arg": ref, "lower": ref, "upper": ref}),
     ]}
     step = obj({"before": ref, "after": ref, "reason": {"type": "string"},
                 "conditions": {"type": "array", "items": {"type": "string", "enum": ["x > 0"]}},
@@ -55,12 +58,27 @@ def make_prompt(target: dict, route: str, previous_error: str = "") -> str:
 The program, not you, fixes the theorem: for every integer n and real x > 0,
 the input lhs equals rhs, interpreted in Complex with Complex.besselJ.
 Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplification,
-then commutative-ring normalization), ring (commutative-ring normalization).
+then commutative-ring normalization), ring (commutative-ring normalization),
+field (rational algebra using the verified nonzero denominator conditions),
+recurrence (the three-term Bessel recurrence and field algebra),
+calculus (verified Bessel derivative/integral formulas and field algebra).
+Only select a recipe listed in the response schema.
 Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
-add/sub/mul with two args, bessel_j with integer order and real arg,
-zpow with the fixed base -1 and integer exponent. No arbitrary Lean source.
+add/sub/mul/div with two args, bessel_j with integer or fixed rational order and real arg,
+int_cast embeds an integer expression as a complex coefficient. pow has integer
+exponent 0..12; zpow has integer-expression exponent and a statically nonzero base.
+Division likewise requires a statically nonzero denominator, such as positive x.
+rational has numerator and positive denominator, in lowest terms. Noninteger
+Bessel orders require a positive argument. deriv(arg) differentiates with respect
+to x; integral(arg,lower,upper) binds x inside arg. No arbitrary Lean source.
 Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
 J_{-n}(x)=(-1)^n J_n(x), J_{-n}(-x)=J_n(x).
+For x>0: J_{n-1}(x)+J_{n+1}(x)=(2n/x)J_n(x).
+This recurrence also holds for a fixed rational order.
+Derivative/integral order reflection follows the same (-1)^n factor.
+The integral of the derivative of integer-order J_n from a to b is J_n(b)-J_n(a).
+For positive x, D(J_n(x))=(n/x)*J_n(x)-J_{n+1}(x)
+=(J_{n-1}(x)-J_{n+1}(x))/2, and integral(t*J_0(t),0,x)=x*J_1(x).
 The bessel recipe can normalize signs of Bessel order and argument.
 For steps, start exactly at input lhs, finish exactly at input rhs, preserve
 adjacent endpoints, and give each individual equality a valid recipe.

@@ -1,8 +1,8 @@
 # Bessel Proof Agent
 
-整数次数の第1種ベッセル関数について、構造化した恒等式の証明候補をAIが作り、Leanで検証する小さな初版です。式全体を扱う直接経路と、一つずつ等式変形を検査して連結する段階経路を備えます。
+整数次数の第1種ベッセル関数について、構造化した恒等式の証明候補をAIが作り、Leanで検証する実装です。式全体を扱う直接経路と、一つずつ等式変形を検査して連結する段階経路を備えます。
 
-初期対象は、すべての整数 `n` と正の実数 `x` に対する等式です。`J n x` は mathlib の `Complex.besselJ (n : ℂ) (x : ℂ)` と定義し、等式を複素数上で検査します。既存の整数次数の符号関係と多項式の整理に対応します。
+初期対象は、すべての整数 `n` と正の実数 `x` に対する等式です。`J n x` は mathlib の `Complex.besselJ (n : ℂ) (x : ℂ)` と定義し、等式を複素数上で検査します。整数次数の符号関係、一般三項漸化式、微分公式、定積分を扱います。固定した有理数次数も入力できます。
 
 ## 準備
 
@@ -42,17 +42,84 @@ python3 -m bessel_agent.generate demo/target.json --route steps --output runs/li
 
 生成は読み取り専用の一時ディレクトリで行い、JSONの証明計画だけを受け取ります。生成モデルが命題・前提を出力する欄はありません。検証側は元入力に候補を付加し、改めて構造を検査します。生成処理のタイムアウトは既定240秒です。出力先には新しいディレクトリを指定してください。
 
-## 入力と範囲
+## LaTeX・通常表記から入力する
 
-入力は `schema_version`、`assumptions`、`lhs`、`rhs` を持つJSONです。保存候補の検査時は `proof` を加えます。具体的な構造は [demo/target.json](demo/target.json) と [examples](examples) にあります。
+等式の末尾に条件を付けたテキストを読み込めます。
 
-- 次数・整数冪指数: 整数定数、`n`、符号反転、加減乗算。
-- 実引数: 整数定数、`x`、符号反転、加減乗算。
-- 等式の式: 上記Bessel関数、複素数に埋め込んだ実式、整数定数、加減乗算、符号因子 `(-1)^整数`。
-- 前提: `x > 0`。前提の欠落は条件確認待ちになります。
-- 証明操作: `bessel`（検証済み符号関係と環の整理）、`ring`（環の整理）。
+```text
+J_{n-1}(x) + J_{n+1}(x) = \frac{2 n}{x} J_n(x); n integer, x > 0
+```
 
-自由なLaTeXの解釈、微分・積分、非整数次数、一般の除算・冪、数値による反例探索は今後の範囲です。三項漸化式の調査・試作と採用mathlibの詳細は [数学ノート](docs/mathematics.md) を参照してください。
+```sh
+mkdir -p runs
+python3 -m bessel_agent parse examples/recurrence.txt --output runs/target.json
+python3 -m bessel_agent verify examples/recurrence.txt --recipe recurrence --output runs/recurrence
+```
+
+`parse` は解釈した式をJSONで保存します。条件は末尾のセミコロンに続けて、または `--conditions 'n integer, x > 0'` で指定します。変数 `n` が現れる式では整数条件を明示し、`x > 0` は全入力で明示します。対応する条件が欠ける場合、積分変数の束縛が曖昧な場合、分母の非零条件が不足する場合は、条件確認待ちになります。
+
+対応する表記は `J_n(x)`、`J_{n+1}(x)`、`J(n,x)`、括弧、加減乗除、隣接する因子の積、`\frac`、整数冪、`D(J_n(x))`、`\frac{d}{dx} J_n(x)`、`int(0,x,t*J_0(t),t)`、`\int_0^x t J_0(t) dt` です。次数の `1/2` などの固定有理数は既約分数へ正規化します。マクロ定義、任意のTeXプログラム、無指定の変数・分岐条件は対応文法の外に置き、入力時に確認します。
+
+## 今回追加した数学
+
+Leanの基礎補題は、任意の複素次数 `a`・非零複素引数 `z` の三項漸化式を証明しています。
+
+\[
+J_{a-1}(z)+J_{a+1}(z)=\frac{2a}{z}J_a(z).
+\]
+
+微分公式は複素冪の分岐領域 `Complex.slitPlane` 上で証明し、CLIは正の実数引数へ適用します。
+
+\[
+J'_n(x)=\frac{n}{x}J_n(x)-J_{n+1}(x)
+       =\frac{J_{n-1}(x)-J_{n+1}(x)}{2},\qquad x>0.
+\]
+
+CLIでは整数変数 `n` または固定した有理数次数を入力し、複素数次数の自由変数はLean APIから扱います。次の積分も検査できます。
+
+\[
+\int_0^x tJ_0(t)\,dt=xJ_1(x),\qquad x>0,
+\]
+
+\[
+\int_a^b J'_n(t)\,dt=J_n(b)-J_n(a).
+\]
+
+後者のLean補題は任意の実数端点を扱います。CLIの端点は定数または `x` からなる対応文法の実式で指定します。積分の初期対応は、整数次数のJ、多項式、これらの微分、非零定数による除算からなる、実軸全体で正則な被積分関数です。
+
+非整数次数についてCLIで検証済みの機能は固定有理数の漸化式です。
+微分・積分のCLI証明手順は整数次数を対象とし、任意の複素次数の微分公式はLean APIで利用できます。
+
+- 四則演算と整数係数 `n` の埋め込みに対応します。
+- 自然数冪は指数 `0..12`、整数冪は前提から底の非零を確認できる式に対応します。
+- 分母は `x`、非零定数、その積など、`x > 0` から非零が分かる形を受理します。`J_n(x)` を分母とする式は、追加条件の確認待ちになります。
+- 非整数次数は固定有理数と正の引数に対応します。非整数次数の負引数、分数冪の分岐、積分区間内に特異点を含む表現は、必要条件の指定を求めます。
+- 証明操作は `bessel`、`ring`、`field`、`recurrence`、`calculus`。JSONの式構造と条件から、固定した証明命題を生成します。
+
+証明の構成と数学的範囲は [数学ノート](docs/mathematics.md) に記載しています。
+
+追加した例の再検査:
+
+```sh
+python3 -m bessel_agent verify examples/half-integer.txt --recipe recurrence --output runs/half-integer
+python3 -m bessel_agent verify examples/derivative.txt --recipe calculus --output runs/derivative
+python3 -m bessel_agent verify examples/integral.txt --recipe calculus --output runs/integral
+```
+
+これらはそれぞれ半整数次数の漸化式、整数次数の微分公式、重み付き定積分について
+Leanの証明と依存公理監査を通過した例です。漸化式を含む合成式は
+`demo/recurrence-direct` と `demo/recurrence-steps` に保存し、live AI生成から
+直接経路・段階経路の両方を検査しています。
+
+## 数値反例候補を探す
+
+```sh
+python3 -m bessel_agent.numeric examples/numeric-recurrence-candidate.target.json
+```
+
+次数 `-3..3` と引数 `0.5, 1, 2, 3` の有限個の点を調べます。整数次数・半整数次数のJを60桁の十進演算で級数評価し、相対許容差 `1e-25` を超える差を最大3件保存します。項数は最大500、評価引数は絶対値12以下、次数は絶対値20以下に制限します。微分・積分式の数値評価は今後の範囲です。
+
+係数 `2` を `3` に変えた漸化式では、例えば `n=-3, x=0.5` に差が見つかります。この出力は `unresolved` と反例候補を持つ数値診断で、反証の確定にはLeanで元の全称命題の否定を検査します。
 
 ## 結果の意味
 
