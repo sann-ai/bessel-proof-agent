@@ -208,6 +208,33 @@ class ArchiveBoundaryTests(unittest.TestCase):
         self.assertIn("proof_attempt.lean:4", cleaned)
         self.assertIn("BESSEL_AUDIT_BEGIN", cleaned)
 
+    def test_nonfinite_json_constants_are_rejected_and_original_input_is_archived(self):
+        for constant in ("NaN", "Infinity", "-Infinity", "1e400", "-1e400"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as folder:
+                base = Path(folder)
+                source = base / "input.json"
+                raw = json.dumps(request()).replace('"value": -1', '"value": ' + constant)
+                source.write_text(raw)
+                with self.assertRaisesRegex(InputError, "Non-finite JSON"):
+                    load_json(source)
+                root = base / "archive"
+                result = subprocess.run([sys.executable, "-m", "bessel_agent", "verify", str(source),
+                                         "--output", str(base / "verification"), "--archive", "--archive-dir", str(root)],
+                                        cwd=ROOT, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                saved = json.loads(result.stdout)
+                self.assertEqual(saved["status"], "unresolved")
+                self.assertNotIn("archive_error", saved)
+                record = archive.show_record(saved["archive_id"], root)
+                self.assertEqual(record["original_input"], raw)
+                self.assertIsNone(record["request"])
+                self.assertIn("Non-finite JSON", record["result"]["detail"])
+                self.assertFalse((base / "verification").exists())
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "metadata.json"
+            source.write_text('{"elapsed_seconds": 0.125, "large_finite": 1e300}')
+            self.assertEqual(load_json(source), {"elapsed_seconds": 0.125, "large_finite": 1e300})
+
 
 @unittest.skipUnless(os.environ.get("BESSEL_RUN_LEAN_TESTS") == "1", "Enable real Lean integration checks.")
 class ArchiveLeanTests(unittest.TestCase):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 from fractions import Fraction
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -885,7 +886,16 @@ def load_json(path: Path) -> Any:
             result[key] = value
         return result
 
+    def reject_constant(value: str) -> Any:
+        raise InputError(f"Non-finite JSON constants are unsupported: {value}")
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise InputError(f"Non-finite JSON numbers are unsupported: {value}")
+        return parsed
+
     try:
-        return json.loads(raw, object_pairs_hook=unique_keys)
+        return json.loads(raw, object_pairs_hook=unique_keys, parse_constant=reject_constant, parse_float=finite_float)
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         raise InputError(f"Invalid JSON: {exc}") from exc
