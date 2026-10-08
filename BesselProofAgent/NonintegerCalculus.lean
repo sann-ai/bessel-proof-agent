@@ -5,6 +5,13 @@ import Mathlib.Analysis.SpecialFunctions.Sqrt
 
 namespace BesselProofAgent
 
+/-- The symmetric derivative formula at arbitrary complex order and positive real argument. -/
+theorem deriv_bessel_real_symmetric (a : ℂ) (x : ℝ) (hx : 0 < x) :
+    deriv (fun t : ℝ => Complex.besselJ a (t : ℂ)) x =
+      (Complex.besselJ (a - 1) (x : ℂ) - Complex.besselJ (a + 1) (x : ℂ)) / 2 :=
+  (bessel_hasDerivAt_symmetric a (x : ℂ)
+    (Complex.ofReal_mem_slitPlane.mpr hx)).comp_ofReal.deriv
+
 /-- The derivative formula at an exact rational order and positive real argument. -/
 theorem deriv_bessel_rational (p : ℤ) (q : ℕ) (_hq : 0 < q) (x : ℝ) (hx : 0 < x) :
     deriv (fun t : ℝ => Complex.besselJ (((p : ℝ) / (q : ℝ) : ℝ) : ℂ) (t : ℂ)) x =
@@ -96,6 +103,7 @@ theorem integral_sqrt_mul_bessel_neg_half (x : ℝ) (hx : 0 < x) :
   simpa using h
 
 #print axioms hasDerivAt_sqrt_mul_bessel_half
+#print axioms deriv_bessel_real_symmetric
 #print axioms integral_sqrt_mul_bessel_neg_half
 #print axioms deriv_bessel_rational
 #print axioms deriv_bessel_half
