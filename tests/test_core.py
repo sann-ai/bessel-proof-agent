@@ -63,6 +63,20 @@ class InputBoundaryTests(unittest.TestCase):
         with self.assertRaises(InputError):
             validate_request(data)
 
+    def test_integer_powers_require_the_exact_nonzero_sign_base(self):
+        data = example()
+        validate_request(data)
+        self.assertEqual(data["rhs"]["args"][0]["base"], {"op": "int", "value": -1})
+        for base in ({"op": "int", "value": 0},
+                     {"op": "bessel_j", "order": {"op": "var", "name": "n"},
+                      "arg": {"op": "var", "name": "x"}},
+                     {"op": "int", "value": -1.0}):
+            candidate = example()
+            candidate["lhs"] = {"op": "zpow", "base": base,
+                                "exponent": {"op": "int", "value": -1}}
+            with self.subTest(base=base), self.assertRaises(InputError):
+                validate_request(candidate)
+
     def test_free_text_cannot_change_lean_or_verified_explanation(self):
         data = example("steps.json")
         original = render_lean(data)

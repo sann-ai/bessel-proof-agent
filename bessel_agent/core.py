@@ -76,6 +76,8 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None)
     elif op == "zpow" and sort == "complex":
         _keys(node, {"op", "base", "exponent"})
         _expr(node["base"], "complex", depth + 1, budget)
+        if node["base"] != {"op": "int", "value": -1}:
+            raise InputError("Only the sign factor (-1) raised to an integer is supported.")
         _expr(node["exponent"], "int", depth + 1, budget)
     else:
         raise InputError(f"Unsupported operation {op!r} in a {sort} expression.")

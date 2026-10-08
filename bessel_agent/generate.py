@@ -36,7 +36,9 @@ def output_schema(route: str) -> dict:
         obj({"op": {"type": "string", "enum": ["add", "sub", "mul"]},
              "args": {"type": "array", "items": ref, "minItems": 2, "maxItems": 2}}),
         obj({"op": {"const": "bessel_j"}, "order": ref, "arg": ref}),
-        obj({"op": {"const": "zpow"}, "base": ref, "exponent": ref}),
+        obj({"op": {"const": "zpow"},
+             "base": obj({"op": {"const": "int"}, "value": {"type": "integer", "enum": [-1]}}),
+             "exponent": ref}),
     ]}
     step = obj({"before": ref, "after": ref, "reason": {"type": "string"},
                 "conditions": {"type": "array", "items": {"type": "string", "enum": ["x > 0"]}},
@@ -56,7 +58,7 @@ Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplificati
 then commutative-ring normalization), ring (commutative-ring normalization).
 Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
 add/sub/mul with two args, bessel_j with integer order and real arg,
-zpow with a complex base and integer exponent. No arbitrary Lean source.
+zpow with the fixed base -1 and integer exponent. No arbitrary Lean source.
 Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
 J_{-n}(x)=(-1)^n J_n(x), J_{-n}(-x)=J_n(x).
 The bessel recipe can normalize signs of Bessel order and argument.
