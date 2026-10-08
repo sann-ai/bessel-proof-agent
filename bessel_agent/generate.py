@@ -118,17 +118,75 @@ State conditions directly without unnecessary negations.
 
 
 def generate(target: dict, route: str, output_dir: Path, *, model: str | None = None,
-             timeout: float = 240, attempts: int = 1) -> dict:
+             timeout: float = 240, attempts: int = 1, archive: bool = False,
+             archive_dir: Path | None = None, original_input: str | None = None) -> dict:
+    """Optionally search and append to the user's separate proof archive."""
+    if archive_dir is not None and not archive:
+        raise ValueError("--archive-dir requires --archive.")
+    context: dict = {}
+    original_input = original_input if original_input is not None else json.dumps(target, ensure_ascii=False)
+    archive_root = None
+    if archive:
+        from .archive import resolve_archive_root
+        archive_root = resolve_archive_root(archive_dir)
+    try:
+        return _generate(target, route, Path(output_dir), model=model, timeout=timeout,
+                         attempts=attempts, archive_root=archive_root, context=context,
+                         original_input=original_input)
+    except (ValueError, OSError) as exc:
+        if archive_root is not None:
+            from .archive import register_failure
+            failure = {"status": "needs_conditions" if isinstance(exc, NeedsConditions) else "unresolved",
+                       "reason": "generation_or_input_error", "detail": str(exc)}
+            fixed_target = dict(target) if isinstance(target, dict) else target
+            if isinstance(fixed_target, dict):
+                fixed_target.pop("proof", None)
+            register_failure(failure, archive_root, original_input=original_input,
+                             request=fixed_target, candidate=context.get("candidate"))
+        raise
+
+
+def _generate(target: dict, route: str, output_dir: Path, *, model: str | None,
+              timeout: float, attempts: int, archive_root: Path | None, context: dict,
+              original_input: str) -> dict:
     validate_request(target, require_proof=False)
     target = dict(target)
     target.pop("proof", None)
     validate_request(target, require_proof=False)
-    if shutil.which("codex") is None:
-        raise ValueError("Codex CLI が見つかりません。保存された候補は verify で検査できます。")
     if output_dir.exists():
         raise ValueError("出力先が既に存在します。別のディレクトリを指定してください。")
     output_dir.mkdir(parents=True)
     (output_dir / "target.json").write_text(json.dumps(target, ensure_ascii=False, indent=2) + "\n")
+    if archive_root is not None:
+        from .archive import find_exact, register_verification, replay_record
+        skipped = []
+        for record in find_exact(target, archive_root):
+            candidate = record.get("candidate")
+            if record["status"] not in {"proved", "refuted"} or not isinstance(candidate, dict) or candidate.get("mode") != route:
+                continue
+            try:
+                checked = replay_record(record["id"], archive_root, timeout=60)
+            except (ValueError, OSError) as exc:
+                skipped.append({"record_id": record["id"], "reason": str(exc)})
+                continue
+            if not checked.get("replayed"):
+                skipped.append({"record_id": record["id"], "reason": "Replay did not accept the certificate."})
+                continue
+            request = {**target, "proof": candidate}
+            result = verify(request, output_dir / "reuse" / "verification", timeout=60)
+            provenance = {"provider": "archive", "reused_record_id": record["id"],
+                          "route": route, "ai_called": False}
+            registered = register_verification(output_dir / "reuse" / "verification", archive_root,
+                                               original_input=original_input,
+                                               provenance=provenance)
+            result["archive_record_id"] = registered["id"]
+            result["reuse"] = provenance
+            (output_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+            return result
+        if skipped:
+            (output_dir / "archive-reuse-skipped.json").write_text(json.dumps(skipped, ensure_ascii=False, indent=2) + "\n")
+    if shutil.which("codex") is None:
+        raise ValueError("Codex CLI が見つかりません。保存された候補は verify で検査できます。")
     schema = output_schema(route, target)
     target_hash = hashlib.sha256(json.dumps(target, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     prior_error = ""
@@ -174,6 +232,7 @@ def generate(target: dict, route: str, output_dir: Path, *, model: str | None = 
             proof = load_json(response_path)
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError("AI の候補JSONを読み取れませんでした。") from exc
+        context["candidate"] = proof
         if not isinstance(proof, dict) or proof.get("mode") != route:
             raise ValueError("AI の候補経路が指定と一致しません。")
         request = {**target, "proof": proof}
@@ -181,6 +240,11 @@ def generate(target: dict, route: str, output_dir: Path, *, model: str | None = 
         validate_request(request)
         (attempt_dir / "request.json").write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n")
         result = verify(request, attempt_dir / "verification", timeout=60)
+        if archive_root is not None:
+            registered = register_verification(attempt_dir / "verification", archive_root,
+                                               original_input=original_input,
+                                               provenance=metadata)
+            result["archive_record_id"] = registered["id"]
         if result.get("status") in {"proved", "refuted"}:
             break
         prior_error = json.dumps(result, ensure_ascii=False)
@@ -196,18 +260,36 @@ def main() -> int:
     parser.add_argument("--model")
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--attempts", type=int, choices=range(1, 4), default=1)
+    parser.add_argument("--archive", action="store_true", help="Search exact verified results, then append this attempt to your archive.")
+    parser.add_argument("--archive-dir", type=Path, help="Override the separate user archive directory; requires --archive.")
     args = parser.parse_args()
     if not 0 < args.timeout <= 600:
         parser.error("--timeout must be positive and at most 600 seconds")
+    if args.archive_dir is not None and not args.archive:
+        parser.error("--archive-dir requires --archive")
+    original_input = None
+    started_generation = False
     try:
-        result = generate(load_json(args.input), args.route, args.output,
-                          model=args.model, timeout=args.timeout, attempts=args.attempts)
+        original_input = args.input.read_text(encoding="utf-8")
+        target = load_json(args.input)
+        started_generation = True
+        result = generate(target, args.route, args.output,
+                          model=args.model, timeout=args.timeout, attempts=args.attempts,
+                          archive=args.archive, archive_dir=args.archive_dir,
+                          original_input=original_input)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("status") in {"proved", "refuted"} else 2
     except NeedsConditions as exc:
         print(json.dumps({"status": "needs_conditions", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
     except (ValueError, OSError) as exc:
+        if args.archive and not started_generation:
+            from .archive import register_failure
+            try:
+                register_failure({"status": "unresolved", "reason": "input_error", "detail": str(exc)},
+                                 args.archive_dir, original_input=original_input)
+            except (ValueError, OSError) as archive_error:
+                print(json.dumps({"archive_error": str(archive_error)}, ensure_ascii=False), file=sys.stderr)
         print(json.dumps({"status": "unresolved", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
 

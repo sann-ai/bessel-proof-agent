@@ -743,19 +743,25 @@ def environment() -> dict[str, Any]:
     return {str(path.relative_to(ROOT)): _sha(path.read_bytes()) for path in files if path.is_file()}
 
 
+def _diagnostics(text: str, source: Path) -> str:
+    return (text.replace(str(source.resolve()), source.name)
+            .replace(str(ROOT.resolve()), "<project>").replace(str(Path.home()), "~"))
+
+
 def _run_lean(path: Path, timeout: float) -> dict[str, Any]:
     try:
         process = subprocess.Popen(["lake", "env", "lean", str(path.resolve())], cwd=ROOT,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                    start_new_session=True)
     except OSError as exc:
-        return {"accepted": False, "reason": "lean_unavailable", "stdout": "", "stderr": str(exc)}
+        return {"accepted": False, "reason": "lean_unavailable", "stdout": "", "stderr": _diagnostics(str(exc), path)}
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         stdout, stderr = process.communicate()
-        return {"accepted": False, "reason": "timeout", "stdout": stdout, "stderr": stderr}
+        return {"accepted": False, "reason": "timeout", "stdout": _diagnostics(stdout, path), "stderr": _diagnostics(stderr, path)}
+    stdout, stderr = _diagnostics(stdout, path), _diagnostics(stderr, path)
     outcome = {"accepted": False, "stdout": stdout, "stderr": stderr, "exit_code": process.returncode}
     if process.returncode != 0:
         return dict(outcome, reason="lean_rejected")
@@ -805,6 +811,11 @@ def verify(data: Any, output_dir: Path, timeout: float = 60) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if any(output_dir.iterdir()):
         raise InputError("Use an empty output directory to preserve earlier evidence.")
+    # Preserve JSON inputs even when validation stops before Lean is invoked.
+    try:
+        _save_json(output_dir / "request.json", data)
+    except (TypeError, ValueError):
+        pass  # Programmatic non-JSON objects have no serializable request.
     try:
         validate_request(data)
     except NeedsConditions as exc:
@@ -815,7 +826,6 @@ def verify(data: Any, output_dir: Path, timeout: float = 60) -> dict[str, Any]:
         result = {"status": "unresolved", "reason": "invalid_input", "detail": str(exc)}
         _save_json(output_dir / "result.json", result)
         return result
-    _save_json(output_dir / "request.json", data)
     result: dict[str, Any] = {"status": "unresolved", "statement": theorem_statement(data),
                               "environment": environment(), "attempts": []}
     for kind in ("proof", "refutation"):
