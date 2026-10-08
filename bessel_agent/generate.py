@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-from .core import RECIPES, NeedsConditions, load_json, validate_request, verify
+from .core import RECIPES, NeedsConditions, condition_labels, load_json, validate_request, verify
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +25,7 @@ def obj(properties: dict) -> dict:
 
 def output_schema(route: str, target: dict | None = None) -> dict:
     """Structured generation is separate from the verifier's strict parser."""
-    conditions = ["x > 0"] + [f"x > {c['value']}" for c in (target or {}).get("extra_conditions", [])]
+    conditions = condition_labels(target or {})
     recipe = {"type": "string", "enum": list(RECIPES)}
     if route == "direct":
         return obj({"mode": {"type": "string", "enum": ["direct"]}, "recipe": recipe})
@@ -66,7 +66,8 @@ then commutative-ring normalization), ring (commutative-ring normalization),
 field (rational algebra using the verified nonzero denominator conditions),
 recurrence (the three-term Bessel recurrence and field algebra),
 calculus (verified Bessel derivative/integral formulas and field algebra),
-power (positive-real rational powers and square-root identities).
+power (positive-real rational powers and square-root identities),
+conditions (use the explicitly supplied scalar comparisons/equalities).
 Only select a recipe listed in the response schema.
 Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
 add/sub/mul/div with two args, bessel_j with integer or fixed rational order and real arg,
@@ -91,10 +92,16 @@ For a rational-order derivative, use (a/x)*J_a(x)-J_(a+1)(x) directly: this is
 the supported calculus rewrite. When the target adds a derivative and an integral,
 rewrite the derivative in one step and the integral in a separate step.
 For x>0, integral(t^(-1/2),0,x)=2*sqrt(x), and the calculus recipe proves it.
+The calculus recipe also proves the integrable Bessel singularity
+integral(t^(1/4)*J_(-3/4)(t),0,x)=x^(1/4)*J_(1/4)(x).
+For sums of an integral and algebraic terms, evaluate the integral in one step
+and collect the terms in a separate ring step.
 For positive endpoints l,u, the integral of (a/t)*J_a(t)-J_(a+1)(t) is J_a(u)-J_a(l).
 real_rpow(base, exponent) means Real.rpow on a positive real base, cast to Complex;
 its exponent is an int or reduced rational AST. sqrt(arg) is the positive real square root.
-extra_conditions entries {op: "x_gt", value: k} mean the explicit outer condition x > k.
+extra_conditions entries {op: "x_gt", value: k} mean x > k. The compare form
+has variable n or x, relation gt/ge/lt/le/eq/ne, and value {numerator:p,denominator:q}.
+These are exact comparisons with a rational constant; retain every given condition.
 These outer conditions never apply to the bound variable inside an integral.
 The bessel recipe can normalize signs of Bessel order and argument.
 For steps, start exactly at input lhs, finish exactly at input rhs, preserve

@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from .core import load_json, validate_request
+from .core import condition_holds, normalized_conditions, load_json, validate_request
 
 PI = Decimal('3.14159265358979323846264338327950288419716939937510582097494459')
 
@@ -58,8 +58,15 @@ def bessel_j(order: Fraction, x: Decimal) -> Decimal:
             t -= 1
             gamma /= t
         term = (x / 2) ** m * (x / 2).sqrt() / gamma
+    elif order.denominator > 1 and x > 0:
+        q = Decimal(order.numerator) / Decimal(order.denominator)
+        try:
+            gamma = Decimal(str(math.gamma(float(order + 1))))
+        except (ValueError, OverflowError) as exc:
+            raise NumericalScopeError('The rational-order Gamma approximation exceeded its numerical scope.') from exc
+        term = (x / 2) ** q / gamma
     else:
-        raise NumericalScopeError('Numerics supports integer orders and half-integers at positive arguments.')
+        raise NumericalScopeError('Noninteger numerical orders require a positive argument.')
     result = term
     q = Decimal(order.numerator) / Decimal(order.denominator)
     for k in range(1, 501):
@@ -154,7 +161,12 @@ def _eval(node: dict, n: int, x: Decimal, ctx: EvaluationContext, calculus_depth
             slope = (bessel_j(q - 1, argument.value) - bessel_j(q + 1, argument.value)) / 2
             propagated = abs(slope) * argument.error
         ctx.methods.add('bounded_bessel_series')
-        return Estimate(value, propagated + Decimal('1e-45') * max(Decimal(1), abs(value)))
+        if q.denominator not in (1, 2):
+            ctx.methods.add('binary64_gamma_for_rational_order')
+            scale_error = Decimal('1e-12')
+        else:
+            scale_error = Decimal('1e-45')
+        return Estimate(value, propagated + scale_error * max(Decimal(1), abs(value)))
     if op in ('deriv', 'integral'):
         if calculus_depth >= 2:
             raise NumericalScopeError('Numerical calculus nesting is limited to 2 levels.')
@@ -219,6 +231,7 @@ def evaluate(node: dict, n: int, x: Decimal) -> Decimal:
 
 def diagnose(target: dict) -> dict:
     validate_request(target, require_proof=False)
+    conditions = normalized_conditions(target)
     mismatches = []
     skipped = set()
     checked = excluded = 0
@@ -229,7 +242,7 @@ def diagnose(target: dict) -> dict:
         for n in range(-3, 4):
             for sample in ('0.5', '1', '2', '3'):
                 x = Decimal(sample)
-                if any(x <= condition['value'] for condition in target.get('extra_conditions', [])):
+                if any(not condition_holds(condition, n, Fraction(x)) for condition in conditions):
                     excluded += 1
                     continue
                 ctx = EvaluationContext()
@@ -246,7 +259,9 @@ def diagnose(target: dict) -> dict:
                 estimated_error = left.error + right.error
                 max_error = max(max_error, estimated_error)
                 has_calculus = bool(ctx.methods & {'central_difference_richardson', 'open_midpoint_richardson'})
-                relative = Decimal('1e-9') if has_calculus else Decimal('1e-25')
+                has_general_rational = 'binary64_gamma_for_rational_order' in ctx.methods
+                relative = (Decimal('1e-9') if has_calculus else
+                            Decimal('1e-10') if has_general_rational else Decimal('1e-25'))
                 tolerance = max(relative * max(Decimal(1), abs(left.value), abs(right.value)), 10 * estimated_error)
                 if error > tolerance:
                     mismatches.append({'n': n, 'x': sample, 'lhs': str(left.value), 'rhs': str(right.value),
@@ -263,6 +278,7 @@ def diagnose(target: dict) -> dict:
             'checked_samples': checked, 'excluded_by_conditions': excluded,
             'candidates': mismatches, 'skipped_reasons': sorted(skipped),
             'precision_digits': 60, 'relative_tolerance': '1e-25', 'calculus_relative_tolerance': '1e-9',
+            'general_rational_relative_tolerance': '1e-10', 'general_rational_gamma_backend': 'math.gamma_binary64',
             'max_series_terms': 500, 'max_quadrature_subdivisions': 512, 'max_evaluations_per_sample': 50000,
             'methods': sorted(methods), 'largest_estimated_error': str(max_error),
             'error_estimate_kind': 'empirical_refinement_difference',

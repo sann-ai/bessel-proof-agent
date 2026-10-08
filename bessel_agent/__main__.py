@@ -2,9 +2,10 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from .core import InputError, NeedsConditions, RECIPES, load_json, replay, verify
+from .core import InputError, NeedsConditions, RECIPES, condition_labels, display_expr, load_json, replay, verify
 from .parser import parse_identity
 
 
@@ -35,6 +36,8 @@ def main() -> int:
             if args.output:
                 with args.output.open("x", encoding="utf-8") as stream:
                     stream.write(encoded)
+            print("正規化した式：" + display_expr(target["lhs"]) + " = " + display_expr(target["rhs"])
+                  + "。条件：n は整数、x は実数、" + "、".join(condition_labels(target)) + "。", file=sys.stderr)
             print(encoded, end="")
             return 0
         if args.command == "replay":

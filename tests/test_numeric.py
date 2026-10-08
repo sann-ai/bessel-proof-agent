@@ -3,6 +3,7 @@ from decimal import Decimal, localcontext
 from fractions import Fraction
 import math
 import unittest
+from unittest.mock import patch
 from bessel_agent.core import load_json, ROOT
 from bessel_agent.numeric import bessel_j, diagnose
 from bessel_agent.parser import parse_identity
@@ -109,3 +110,53 @@ class NumericalDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result['diagnostic'], 'no_mismatch_found')
         self.assertEqual(result['checked_samples'], 28)
         self.assertEqual(result['status'], 'unresolved')
+
+    def test_quarter_order_gamma_rounding_does_not_create_candidates(self):
+        target = parse_identity('J_{-3/4}(x)+J_{5/4}(x)=1/(2*x)*J_{1/4}(x)', 'x > 0')
+        original_gamma = math.gamma
+        def rounded_gamma(argument):
+            return original_gamma(argument) * (1 + (1e-14 if argument < 1 else -1e-14))
+        with patch('bessel_agent.numeric.math.gamma', side_effect=rounded_gamma):
+            result = diagnose(target)
+        self.assertEqual(result['diagnostic'], 'no_mismatch_found')
+        self.assertEqual(result['checked_samples'], 28)
+        self.assertIn('binary64_gamma_for_rational_order', result['methods'])
+        self.assertGreater(Decimal(result['largest_estimated_error']), Decimal('1e-12'))
+        self.assertEqual(result['general_rational_relative_tolerance'], '1e-10')
+
+    def test_quarter_order_derivative_reports_gamma_uncertainty(self):
+        target = parse_identity('D(J_{1/4}(x))=1/(4*x)*J_{1/4}(x)-J_{5/4}(x)', 'x > 0')
+        result = diagnose(target)
+        self.assertEqual(result['diagnostic'], 'no_mismatch_found')
+        self.assertEqual(result['checked_samples'], 28)
+        self.assertIn('binary64_gamma_for_rational_order', result['methods'])
+        wrong = parse_identity('D(J_{1/4}(x))=1/(4*x)*J_{1/4}(x)+J_{5/4}(x)', 'x > 0')
+        result = diagnose(wrong)
+        self.assertEqual(result['status'], 'unresolved')
+        self.assertEqual(result['diagnostic'], 'counterexample_candidates')
+
+    def test_mixed_scalar_conditions_filter_n_and_x_exactly(self):
+        target = load_json(ROOT / 'demo/target.json')
+        def condition(variable, relation, p, q=1):
+            return {'op': 'compare', 'variable': variable, 'relation': relation,
+                    'value': {'numerator': p, 'denominator': q}}
+        target['extra_conditions'] = [condition('n', 'ge', 1), condition('n', 'le', 2),
+                                      condition('x', 'le', 2), condition('x', 'ne', 1)]
+        result = diagnose(target)
+        self.assertEqual(result['diagnostic'], 'no_mismatch_found')
+        self.assertEqual(result['checked_samples'], 4)
+        self.assertEqual(result['excluded_by_conditions'], 24)
+
+    def test_origin_bessel_singularity_and_wrong_coefficient(self):
+        target = parse_identity((ROOT / 'examples/origin-singular-composed.txt').read_text())
+        result = diagnose(target)
+        self.assertEqual(result['diagnostic'], 'no_mismatch_found')
+        self.assertEqual(result['checked_samples'], 14)
+        self.assertEqual(result['excluded_by_conditions'], 14)
+        self.assertIn('zero_endpoint_square_substitution', result['methods'])
+        self.assertIn('binary64_gamma_for_rational_order', result['methods'])
+        wrong = copy.deepcopy(target)
+        wrong['rhs'] = {'op': 'add', 'args': [wrong['rhs'], {'op': 'int', 'value': 1}]}
+        result = diagnose(wrong)
+        self.assertEqual(result['status'], 'unresolved')
+        self.assertEqual(result['diagnostic'], 'counterexample_candidates')

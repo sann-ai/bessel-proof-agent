@@ -10,11 +10,12 @@ from fractions import Fraction
 import re
 from typing import Any
 
-from .core import InputError, NeedsConditions, validate_request
+from .core import InputError, NeedsConditions, _condition_domains, validate_request
 
 
-TOKEN = re.compile(r"\s+|\\[A-Za-z]+|\\[,!;:]|[0-9]+|[A-Za-z]+|[_^{}()+\-*/=,;]")
-TEX_BUILTINS = {"frac", "dfrac", "int", "sqrt", "left", "right", "cdot", "times"}
+TOKEN = re.compile(r"\s+|\\[A-Za-z]+|\\[,!;:]|[0-9]+|[A-Za-z]+|[_^{}()+\-*/=,;']")
+TEX_BUILTINS = {"frac", "dfrac", "tfrac", "int", "sqrt", "left", "right", "cdot", "times", "operatorname"}
+TEX_RESERVED = TEX_BUILTINS | {"newcommand", "def", "DeclareMathOperator", "begin", "end", "text", "quad", "qquad", "in", "mathbb", "le", "leq", "ge", "geq", "ne", "neq", "prime"}
 
 
 def _tex_group(text: str, index: int) -> tuple[str, int]:
@@ -36,25 +37,47 @@ def _tex_group(text: str, index: int) -> tuple[str, int]:
 
 
 def _expand_macros(text: str) -> str:
-    """Expand a bounded expression-only newcommand subset; never execute TeX."""
+    """Expand bounded expression macros; never execute TeX."""
     macros: dict[str, tuple[int, str]] = {}
     text = text.lstrip()
-    while text.startswith(r"\newcommand"):
-        name_group, index = _tex_group(text, len(r"\newcommand"))
-        match = re.fullmatch(r"\\([A-Za-z]{1,16})", name_group)
-        if not match:
-            raise InputError("Use a macro name of 1 to 16 ASCII letters.")
-        name = match[1]
-        if name in TEX_BUILTINS or name in macros or name == "newcommand":
+    while re.match(r"\\(?:newcommand|def|DeclareMathOperator)\b", text):
+        command = re.match(r"\\([A-Za-z]+)", text)[1]
+        index = len(command) + 1
+        if command == "def":
+            match = re.match(r"\s*\\([A-Za-z]{1,16})(?![A-Za-z])", text[index:])
+            if not match:
+                raise InputError("Use a short macro name after def.")
+            name = match[1]
+            index += match.end()
+            placeholders = re.match(r"(?:#[1-3])*", text[index:])[0]
+            arity = len(placeholders) // 2
+            if placeholders != "".join(f"#{number}" for number in range(1, arity + 1)):
+                raise InputError("def supports consecutive parameters #1 through #3.")
+            body, end = _tex_group(text, index + len(placeholders))
+        else:
+            name_group, index = _tex_group(text, index)
+            match = re.fullmatch(r"\\([A-Za-z]{1,16})", name_group)
+            if not match:
+                raise InputError("Use a macro name of 1 to 16 ASCII letters.")
+            name = match[1]
+            if command == "DeclareMathOperator":
+                body, end = _tex_group(text, index)
+                if body != "J":
+                    raise InputError("DeclareMathOperator currently supports the Bessel operator J.")
+                arity = 0
+            else:
+                arity_match = re.match(r"\s*\[([0-3])\]", text[index:])
+                if not arity_match:
+                    raise InputError("Declare an explicit macro arity from [0] to [3].")
+                arity = int(arity_match[1])
+                body, end = _tex_group(text, index + arity_match.end())
+        if name in TEX_RESERVED or name in macros:
             raise InputError("A macro cannot replace a built-in or an earlier definition.")
-        arity_match = re.match(r"\s*\[([0-3])\]", text[index:])
-        if not arity_match:
-            raise InputError("Declare an explicit macro arity from [0] to [3].")
-        arity = int(arity_match[1])
-        body, end = _tex_group(text, index + arity_match.end())
         if len(body) > 512 or not re.fullmatch(r"[A-Za-z0-9_#{}()^+*/\-\\,\s]*", body):
             raise InputError("A macro body must be a short mathematical expression.")
         placeholders = re.findall(r"#([0-9]+)", body)
+        if set(placeholders) != {str(number) for number in range(1, arity + 1)}:
+            raise InputError("Every declared macro argument must occur in the expression body.")
         if any(not 1 <= int(value) <= arity for value in placeholders) or "#" in re.sub(r"#[0-9]+", "", body):
             raise InputError("A macro placeholder must refer to one declared argument.")
         macros[name] = arity, body
@@ -93,6 +116,8 @@ def _expand_macros(text: str) -> str:
                 arguments = []
                 for _ in range(arity):
                     argument, index = _tex_group(source, index)
+                    if re.search(r"[=<>;#&]|\\\\|\\(?:text|begin|end)\b", argument):
+                        raise NeedsConditions("Macro arguments must be expressions; equations and condition rows need explicit separation.")
                     arguments.append(argument)
                 replaced = re.sub(r"#([1-3])", lambda m: arguments[int(m[1]) - 1], body)
                 part = " " + expand(replaced, depth + 1) + " "
@@ -206,12 +231,8 @@ def _convert(node: dict, sort: str = "complex", bound: str = "x") -> dict:
 
 class _Parser:
     def __init__(self, text: str):
-        text = text.replace("−", "-").strip()
-        if text.startswith("$") and text.endswith("$"):
-            text = text[1:-1].strip("$")
-        if text.startswith(r"\[") and text.endswith(r"\]"):
-            text = text[2:-2]
-        text = re.sub(r"\\frac\s*\{\s*d\s*\}\s*\{\s*d\s*([xt])\s*\}", lambda m: " D" + m[1] + " ", text)
+        text = text.replace("−", "-").replace(r"\prime", "'").strip()
+        text = re.sub(r"\\(?:frac|dfrac|tfrac)\s*\{\s*d\s*\}\s*\{\s*d\s*([xt])\s*\}", lambda m: " D" + m[1] + " ", text)
         text = re.sub(r"\bd\s*/\s*d\s*([xt])\b", lambda m: " D" + m[1] + " ", text)
         self.tokens: list[str] = []
         index = 0
@@ -223,7 +244,7 @@ class _Parser:
             index = match.end()
             if token.isspace() or token in {r"\left", r"\right", r"\,", r"\!", r"\;", r"\:"}:
                 continue
-            token = {r"\cdot": "*", r"\times": "*", r"\dfrac": r"\frac"}.get(token, token)
+            token = {r"\cdot": "*", r"\times": "*", r"\dfrac": r"\frac", r"\tfrac": r"\frac"}.get(token, token)
             self.tokens.append(token)
         if len(self.tokens) > 1500:
             raise InputError("The equation exceeds the parser token limit.")
@@ -323,9 +344,21 @@ class _Parser:
             return {"op": "sqrt", "arg": self.group()}
         if token == "J":
             self.take()
+            prime = self.peek() == "'"
+            if prime:
+                self.take()
             if self.peek() == "_":
                 self.take()
                 order = self.script()
+                if self.tokens[self.index:self.index + 2] == ["^", "'"]:
+                    self.index += 1
+                elif self.tokens[self.index:self.index + 4] == ["^", "{", "'", "}"]:
+                    self.tokens[self.index:self.index + 4] = ["'"]
+                if self.peek() == "'":
+                    if prime:
+                        raise NeedsConditions("Only the first Bessel derivative is supported.")
+                    prime = True
+                    self.take()
                 if self.peek() != "(":
                     raise NeedsConditions("Clarify the Bessel argument explicitly as J_{order}(argument).")
                 arg = self.group()
@@ -335,7 +368,12 @@ class _Parser:
                 self.take(",")
                 arg = self.expression()
                 self.take(")")
-            return {"op": "bessel_j", "order": order, "arg": arg}
+            result = {"op": "bessel_j", "order": order, "arg": arg}
+            if prime:
+                if arg.get("op") != "var" or arg.get("name") not in {"x", "t"}:
+                    raise NeedsConditions("Prime notation requires the explicit argument x or t; use D for a composition.")
+                return {"op": "deriv", "arg": result, "variable": arg["name"]}
+            return result
         if token in {"D", "Dx", "Dt"}:
             self.take()
             arg = self.group() if self.peek() in {"(", "{"} else self.unary()
@@ -379,37 +417,156 @@ def _conditions(raw: str | list[str] | None, has_n: bool) -> list[dict[str, Any]
     if not isinstance(raw, str) or not raw.strip():
         raise NeedsConditions("State x > 0 and, when n appears, n integer.")
     raw = raw.replace("、", ",").replace("かつ", ",").replace("，", ",")
+    raw = re.sub(r"\b(?:and|where|for)\b", ",", raw)
     raw = raw.replace(r"\mathbb{Z}", "Z").replace(r"\mathbb{R}", "R")
     raw = raw.replace(r"\in", "in").replace("∈", "in").replace("ℤ", "Z").replace("ℝ", "R")
-    parts = {re.sub(r"\s+", "", part).strip("()") for part in raw.split(",")}
+    for source, target in [(r"\geq", ">="), (r"\ge", ">="), (r"\leq", "<="), (r"\le", "<="),
+                           (r"\neq", "!="), (r"\ne", "!="), ("≥", ">="), ("≤", "<="), ("≠", "!=")]:
+        raw = raw.replace(source, target)
+    raw = re.sub(r"\\(?:tfrac|dfrac|frac)\s*\{\s*(-?[0-9]+)\s*\}\s*\{\s*([0-9]+)\s*\}", r"\1/\2", raw)
+    parts = [re.sub(r"\s+", "", part) for part in raw.split(",") if part.strip()]
     integer = {"ninteger", "ninZ", "n:Z", "nは整数", "n整数"}
     positive = {"x>0", "0<x", "xpositive", "xは正", "xは正の実数"}
-    bounds: set[int] = set()
-    for part in tuple(parts):
-        match = re.fullmatch(r"x>([0-9]+)", part)
-        if match and 1 <= int(match[1]) <= 1000:
-            bounds.add(int(match[1]))
-            parts.remove(part)
-            parts.add("x>0")
-    allowed = integer | positive | {"xinR", "xreal", "x:R", "xは実数"}
-    if parts - allowed:
-        raise NeedsConditions("The supplied conditions require clarification; this input grammar uses n integer and x > 0.")
-    if not parts & positive or (has_n and not parts & integer):
-        raise NeedsConditions("State x > 0 and, when n appears, n integer.")
-    return [{"op": "x_gt", "value": value} for value in sorted(bounds)]
+    real = {"xinR", "xreal", "x:R", "xは実数"}
+    relation_names = {">": "gt", ">=": "ge", "<": "lt", "<=": "le", "=": "eq", "!=": "ne"}
+    extras = []
+    stated_positive = False
+    stated_integer = False
+    for part in parts:
+        while part.startswith("(") and part.endswith(")"):
+            part = part[1:-1]
+        if "(" in part or ")" in part:
+            raise NeedsConditions("条件の括弧が対応していません。各比較を明示してください。")
+        if part in integer:
+            stated_integer = True
+            continue
+        if part in real:
+            continue
+        if part in positive:
+            stated_positive = True
+            continue
+        tokens = re.split(r"(>=|<=|!=|>|<|=)", part)
+        if len(tokens) not in {3, 5} or (len(tokens) == 5 and tokens[2] not in {"x", "n"}):
+            raise NeedsConditions("条件は x または n と有理数との比較を明示してください。")
+        for index in range(0, len(tokens) - 2, 2):
+            left, operator, right = tokens[index:index + 3]
+            if left in {"x", "n"}:
+                variable, constant = left, right
+            elif right in {"x", "n"}:
+                variable, constant = right, left
+                operator = {">": "<", ">=": "<=", "<": ">", "<=": ">=", "=": "=", "!=": "!="}[operator]
+            else:
+                raise NeedsConditions("Each comparison must have one variable and one rational constant.")
+            if not re.fullmatch(r"[+-]?[0-9]+(?:/[0-9]+)?", constant):
+                raise NeedsConditions("比較条件の定数は整数または正確な分数で指定してください。")
+            try:
+                value = Fraction(constant)
+            except ZeroDivisionError as exc:
+                raise NeedsConditions("条件の分母は非零である必要があります。") from exc
+            if variable == "x" and ((operator == ">" and value >= 0) or (operator in {">=", "="} and value > 0)):
+                stated_positive = True
+            if variable == "x" and operator == ">" and value == 0:
+                continue
+            if variable == "x" and operator == ">" and value.denominator == 1 and 1 <= value <= 1000:
+                atom = {"op": "x_gt", "value": value.numerator}
+            else:
+                atom = {"op": "compare", "variable": variable, "relation": relation_names[operator],
+                        "value": {"numerator": value.numerator, "denominator": value.denominator}}
+            if atom not in extras:
+                extras.append(atom)
+    zero_relations = {atom["relation"] for atom in extras if atom.get("variable") == "x" and atom["value"]["numerator"] == 0}
+    stated_positive = stated_positive or {"ge", "ne"} <= zero_relations
+    if not stated_positive or ((has_n or any(atom.get("variable") == "n" for atom in extras)) and not stated_integer):
+        raise NeedsConditions("State a positive domain for x and, when n appears, n integer.")
+    _condition_domains({"extra_conditions": extras})
+    return extras
+
+
+def _paper_notation(text: str) -> tuple[str, str | None]:
+    """Remove verified layout only; multiple mathematical rows require confirmation."""
+    text = text.strip()
+    if text.startswith(r"\[") and text.endswith(r"\]"):
+        text = text[2:-2]
+    elif text.startswith("$"):
+        delimiter = "$$" if text.startswith("$$") else "$"
+        if len(text) < 2 * len(delimiter) or not text.endswith(delimiter):
+            raise InputError("Mismatched TeX math delimiters.")
+        text = text[len(delimiter):-len(delimiter)]
+        if "$" in text:
+            raise InputError("Mismatched or multiple TeX math delimiters.")
+    stack = []
+    parts = []
+    end = 0
+    top_start = None
+    top_end = None
+    for match in re.finditer(r"\\(begin|end)\{([A-Za-z*]+)\}", text):
+        parts.append(text[end:match.start()])
+        action, environment = match.groups()
+        if environment not in {"equation", "equation*", "align", "align*", "aligned"}:
+            raise InputError("Supported display environments are equation, align, and aligned.")
+        if action == "begin":
+            if not stack:
+                if top_start is not None:
+                    raise NeedsConditions("複数の数式環境があります。1つずつ検証対象を指定してください。")
+                top_start = match.start()
+            stack.append(environment)
+        elif not stack or stack.pop() != environment:
+            raise InputError("Mismatched TeX display environments.")
+        elif not stack:
+            top_end = match.end()
+        end = match.end()
+    parts.append(text[end:])
+    if stack:
+        raise InputError("Unclosed TeX display environment.")
+    if top_start is not None and (text[:top_start].strip() or
+            (text[top_end:].strip() and not text[top_end:].lstrip().startswith(";"))):
+        raise NeedsConditions("数式環境の外に別の式があります。検証対象を1つにまとめてください。")
+    text = "".join(parts)
+    text = re.sub(r"\\operatorname\s*\{J\}", " J ", text)
+    # A text block begins a trailing condition section. Its entire content survives.
+    embedded = None
+    marker = re.search(r"\\text\b", text)
+    if marker:
+        content, end = _tex_group(text, marker.end())
+        before = text[:marker.start()]
+        if "=" not in before:
+            raise NeedsConditions("Place text conditions after the complete equation.")
+        content = re.sub(r"^\s*(?:for\b|where\b|条件[:：]?|ただし)[ \t]*", "", content)
+        embedded = content + text[end:]
+        text = before
+        if r"\text" in embedded or r"\\" in embedded or "&" in embedded:
+            raise NeedsConditions("Combine all condition rows into one explicit condition list.")
+    text = re.sub(r"\\(?:qquad|quad)\b", " ", text)
+    rows = text.split(r"\\")
+    if any(not row.strip(" &\n\t") for row in rows[:-1]):
+        raise NeedsConditions("An empty or ambiguous equation row needs clarification.")
+    for row in rows[1:]:
+        continuation = row.strip(" &\n\t")
+        if continuation and continuation[0] not in "+-=":
+            raise NeedsConditions("次の数式行の意味が曖昧です。+、-、= で続く変形か、独立した式かを明示してください。")
+    text = " ".join(rows).replace("&", " ")
+    if re.split(r"(?<!\\);", text, maxsplit=1)[0].count("=") > 1:
+        raise NeedsConditions("複数の等式が含まれています。検証する等式と条件を1組ずつ指定してください。")
+    return text, embedded
 
 
 def parse_identity(text: str, conditions: str | list[str] | None = None) -> dict[str, Any]:
     """Return the fixed target AST without a proof candidate."""
     if not isinstance(text, str) or len(text) > 32768:
         raise InputError("An equation must be at most 32768 characters of text.")
-    separated = re.split(r"(?<!\\);", text, maxsplit=1)
-    if len(separated) == 2:
-        if conditions is not None:
-            raise NeedsConditions("Conditions were supplied twice; retain one explicit condition list.")
-        text, conditions = separated
     try:
-        left, right = _Parser(_expand_macros(text)).equation()
+        text = _expand_macros(text)
+        text, embedded = _paper_notation(text)
+        separated = re.split(r"(?<!\\);", text, maxsplit=1)
+        if len(separated) == 2:
+            if embedded is not None or conditions is not None:
+                raise NeedsConditions("Conditions were supplied twice; retain one explicit condition list.")
+            text, conditions = separated
+        if embedded is not None:
+            if conditions is not None:
+                raise NeedsConditions("Conditions were supplied twice; retain one explicit condition list.")
+            conditions = embedded.strip(" ,; ")
+        left, right = _Parser(text).equation()
         extra = _conditions(conditions, _contains_var(left, "n") or _contains_var(right, "n"))
         data = {"schema_version": 1, "assumptions": ["x > 0"],
                 "lhs": _convert(left), "rhs": _convert(right)}

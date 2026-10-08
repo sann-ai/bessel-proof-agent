@@ -42,6 +42,16 @@ class InputBoundaryTests(unittest.TestCase):
             self.assertEqual(result["status"], "needs_conditions")
             lean.assert_not_called()
 
+    def test_contradictory_structured_conditions_never_invoke_lean(self):
+        data = example()
+        data["extra_conditions"] = [{"op": "compare", "variable": "x", "relation": "le",
+                                     "value": {"numerator": 0, "denominator": 1}}]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("bessel_agent.core._run_lean") as lean:
+                result = verify(data, Path(directory))
+            self.assertEqual(result["status"], "needs_conditions")
+            lean.assert_not_called()
+
     def test_tactics_axioms_and_extra_fields_cannot_enter_the_wrapper(self):
         for payload in ("sorry", "admit", "axiom trusted : False", "exact hx", "ring\nend X"):
             data = example()

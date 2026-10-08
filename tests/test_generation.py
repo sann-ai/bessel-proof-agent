@@ -88,3 +88,19 @@ class GenerationBoundaryTests(unittest.TestCase):
             with self.assertRaises(InputError):
                 generate(self.target, 'direct', Path(temp) / 'result')
             verify.assert_not_called()
+
+    def test_general_scalar_conditions_are_kept_in_generation(self):
+        self.target['extra_conditions'] = [
+            {'op': 'compare', 'variable': 'n', 'relation': 'ge', 'value': {'numerator': 2, 'denominator': 1}},
+            {'op': 'compare', 'variable': 'x', 'relation': 'lt', 'value': {'numerator': 1, 'denominator': 1}},
+            {'op': 'compare', 'variable': 'x', 'relation': 'ne', 'value': {'numerator': 1, 'denominator': 2}}]
+        original = copy.deepcopy(self.target)
+        proof = {'mode': 'direct', 'recipe': 'bessel'}
+        with tempfile.TemporaryDirectory() as temp, \
+             patch('bessel_agent.generate.shutil.which', return_value='/bin/codex'), \
+             patch('bessel_agent.generate.subprocess.Popen', side_effect=self.candidate_process(proof)), \
+             patch('bessel_agent.generate.verify', return_value={'status': 'proved'}) as verify:
+            generate(self.target, 'direct', Path(temp) / 'result')
+            self.assertEqual(verify.call_args.args[0], {**original, 'proof': proof})
+        labels = output_schema('steps', self.target)['properties']['steps']['items']['properties']['conditions']['items']['enum']
+        self.assertEqual(labels, ['x > 0', 'n >= 2', 'x < 1', 'x != 1/2'])

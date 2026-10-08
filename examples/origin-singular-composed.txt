@@ -1,0 +1,6 @@
+\DeclareMathOperator{\B}{J}
+\begin{equation}
+\int_0^x t^{1/4}\B_{-3/4}(t)\,dt+x^{1/4}\B_{1/4}(x)
+=2x^{1/4}\B_{1/4}(x)
+\quad\text{for }x>0, x\leq 2, x\neq 1/2
+\end{equation}

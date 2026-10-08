@@ -20,6 +20,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 ASSUMPTIONS = ["x > 0"]
 RECIPES = {
+    "conditions": "first | simp_all | (norm_cast <;> (first | omega | linarith))",
     "bessel": "(try simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc, BesselProofAgent.sign_cancel, BesselProofAgent.sign_mul_self, one_mul, neg_neg]) <;> ring",
     "ring": "ring",
     "power": "norm_num",
@@ -58,18 +59,24 @@ def _constant(node: dict[str, Any]) -> Fraction | None:
     return None
 
 
-def _affine(node: dict[str, Any]) -> tuple[Fraction, Fraction] | None:
+def _affine(node: dict[str, Any], variable: str = "x") -> tuple[Fraction, Fraction] | None:
     value = _constant(node)
     if value is not None:
         return Fraction(0), value
     op = node["op"]
-    if op == "var" and node["name"] == "x":
+    if op == "var" and node["name"] == variable:
         return Fraction(1), Fraction(0)
+    if op == "int_cast":
+        return _affine(node["arg"], variable)
+    if op == "pow" and node["exponent"] in {0, 1}:
+        return (Fraction(0), Fraction(1)) if node["exponent"] == 0 else _affine(node["base"], variable)
+    if op == "zpow" and node["exponent"] in ({"op": "int", "value": 0}, {"op": "int", "value": 1}):
+        return (Fraction(0), Fraction(1)) if node["exponent"]["value"] == 0 else _affine(node["base"], variable)
     if op == "neg":
-        value = _affine(node["arg"])
+        value = _affine(node["arg"], variable)
         return (-value[0], -value[1]) if value is not None else None
     if op in {"add", "sub", "mul", "div"}:
-        left, right = (_affine(arg) for arg in node["args"])
+        left, right = (_affine(arg, variable) for arg in node["args"])
         if left is None or right is None:
             return None
         a, b = left
@@ -85,14 +92,28 @@ def _affine(node: dict[str, Any]) -> tuple[Fraction, Fraction] | None:
     return None
 
 
-def _positive(node: dict[str, Any], lower_bound: int = 0) -> bool:
+def _positive(node: dict[str, Any], lower_bound: Any = 0) -> bool:
     value = _constant(node)
     if value is not None:
         return value > 0
-    affine = _affine(node)
-    if affine is not None:
-        a, b = affine
-        return (a > 0 and a * lower_bound + b >= 0) or (a == 0 and b > 0)
+    if isinstance(lower_bound, dict):
+        for variable in ("x", "n"):
+            affine = _affine(node, variable)
+            if affine is not None:
+                a, b = affine
+                lower, upper, excluded = lower_bound[variable]
+                edge = lower if a > 0 else upper
+                if a == 0:
+                    return b > 0
+                if edge is not None:
+                    value = a * edge[0] + b
+                    if value > 0 or (value == 0 and (edge[1] or edge[0] in excluded)):
+                        return True
+    else:
+        affine = _affine(node)
+        if affine is not None:
+            a, b = affine
+            return (a > 0 and a * lower_bound + b >= 0) or (a == 0 and b > 0)
     op = node["op"]
     if op == "var":
         return node["name"] == "x"
@@ -105,12 +126,17 @@ def _positive(node: dict[str, Any], lower_bound: int = 0) -> bool:
     return False
 
 
-def _nonzero(node: dict[str, Any], lower_bound: int = 0) -> bool:
+def _nonzero(node: dict[str, Any], lower_bound: Any = 0) -> bool:
     value = _constant(node)
     if value is not None:
         return value != 0
     if _positive(node, lower_bound) or _positive({"op": "neg", "arg": node}, lower_bound):
         return True
+    if isinstance(lower_bound, dict):
+        for variable in ("x", "n"):
+            affine = _affine(node, variable)
+            if affine is not None and affine[0] != 0 and -affine[1] / affine[0] in lower_bound[variable][2]:
+                return True
     op = node["op"]
     if op == "neg":
         return _nonzero(node["arg"], lower_bound)
@@ -173,6 +199,16 @@ def _singular_half_integral(node: dict[str, Any]) -> bool:
             and node["upper"] == {"op": "var", "name": "x"}
             and node["arg"] == {"op": "real_rpow", "base": {"op": "var", "name": "x"},
                                 "exponent": {"op": "rational", "numerator": -1, "denominator": 2}})
+
+
+def _singular_origin_integral(node: dict[str, Any]) -> bool:
+    variable = {"op": "var", "name": "x"}
+    return (node["lower"] == {"op": "int", "value": 0} and node["upper"] == variable
+            and node["arg"] == {"op": "mul", "args": [
+                {"op": "real_rpow", "base": variable,
+                 "exponent": {"op": "rational", "numerator": 1, "denominator": 4}},
+                {"op": "bessel_j", "order": {"op": "rational", "numerator": -3, "denominator": 4},
+                 "arg": variable}]})
 
 
 def _has_integral(node: Any) -> bool:
@@ -267,7 +303,7 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None,
         positive_interval = all(_positive(node[name], lower_bound) for name in ("lower", "upper"))
         if _has_integral(node["arg"]):
             raise NeedsConditions("Nested integrals need an explicit supported binding and regularity check.")
-        if not (_entire_integrand(node["arg"]) or positive_interval or _singular_half_integral(node)):
+        if not (_entire_integrand(node["arg"]) or positive_interval or _singular_half_integral(node) or _singular_origin_integral(node)):
             if (node["lower"] == {"op": "int", "value": 0}
                     and node["upper"] == {"op": "var", "name": "x"}
                     and node["arg"] == {"op": "div", "args": [{"op": "int", "value": 1}, {"op": "var", "name": "x"}]}):
@@ -287,10 +323,20 @@ def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
         raise NeedsConditions("State the supported assumption explicitly: x > 0.")
     if data["assumptions"] != ASSUMPTIONS:
         raise InputError('The only supported assumptions are ["x > 0"].')
-    extra_bounds = condition_bounds(data)
-    lower_bound = max([0] + extra_bounds)
+    lower_bound = _condition_domains(data)
     for name in ("lhs", "rhs"):
         _expr(data[name], "complex", lower_bound=lower_bound)
+    difference = {"op": "sub", "args": [data["lhs"], data["rhs"]]}
+    for atom in normalized_conditions(data):
+        affine = _affine(difference, atom["variable"])
+        value = Fraction(atom["value"]["numerator"], atom["value"]["denominator"])
+        if atom["relation"] == "eq" and affine is not None and affine[0] != 0 and -affine[1] / affine[0] == value:
+            raise NeedsConditions("入力した一次等式が等値条件そのものです。検証対象と独立した条件を指定してください。")
+    for variable, (lower, upper, _) in lower_bound.items():
+        affine = _affine(difference, variable)
+        if (lower is not None and upper is not None and lower[0] == upper[0]
+                and affine is not None and affine[0] != 0 and -affine[1] / affine[0] == lower[0]):
+            raise NeedsConditions("入力した一次等式が条件の等値制約そのものです。検証対象を区別してください。")
     if "proof" not in data:
         return data
     proof = data["proof"]
@@ -314,7 +360,7 @@ def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
             previous = step["after"]
             if not isinstance(step["reason"], str) or not 1 <= len(step["reason"]) <= 2000:
                 raise InputError("Each proposed reason must be 1 to 2000 characters.")
-            available = set(ASSUMPTIONS + [f"x > {value}" for value in extra_bounds])
+            available = set(condition_labels(data))
             if (not isinstance(step["conditions"], list)
                     or any(not isinstance(item, str) or item not in available for item in step["conditions"])):
                 raise InputError("Steps can only use the fixed theorem assumptions.")
@@ -326,20 +372,135 @@ def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
     return data
 
 
-def condition_bounds(data: dict[str, Any]) -> list[int]:
+def normalized_conditions(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate closed comparisons; retain the old x_gt representation on disk."""
     conditions = data.get("extra_conditions", [])
-    if not isinstance(conditions, list) or len(conditions) > 4:
-        raise InputError("Use at most four structured extra conditions.")
-    bounds: list[int] = []
+    if not isinstance(conditions, list) or len(conditions) > 8:
+        raise InputError("Use at most eight structured extra conditions.")
+    normalized = []
     for condition in conditions:
-        _keys(condition, {"op", "value"})
-        value = condition["value"]
-        if condition["op"] != "x_gt" or type(value) is not int or not 1 <= value <= 1000:
-            raise NeedsConditions("Supported extra conditions have the form x > k for integer k from 1 to 1000.")
-        if value in bounds:
+        if isinstance(condition, dict) and condition.get("op") == "x_gt":
+            _keys(condition, {"op", "value"})
+            value = condition["value"]
+            if type(value) is not int or not 1 <= value <= 1000:
+                raise NeedsConditions("Legacy x_gt requires an integer from 1 to 1000.")
+            atom = {"op": "compare", "variable": "x", "relation": "gt",
+                    "value": {"numerator": value, "denominator": 1}}
+        else:
+            _keys(condition, {"op", "variable", "relation", "value"})
+            if (condition["op"] != "compare" or not isinstance(condition["variable"], str)
+                    or not isinstance(condition["relation"], str) or condition["variable"] not in {"n", "x"}
+                    or condition["relation"] not in {"gt", "ge", "lt", "le", "eq", "ne"}):
+                raise NeedsConditions("Conditions compare x or n with an exact rational constant.")
+            _keys(condition["value"], {"numerator", "denominator"})
+            p, q = condition["value"]["numerator"], condition["value"]["denominator"]
+            if type(p) is not int or type(q) is not int or abs(p) > 1000 or not 1 <= q <= 1000:
+                raise InputError("A condition requires bounded exact integer rational fields.")
+            value = Fraction(p, q)
+            if (value.numerator, value.denominator) != (p, q):
+                raise InputError("Condition rational constants must be reduced.")
+            atom = condition
+        if atom in normalized:
             raise InputError("Extra conditions must be distinct.")
-        bounds.append(value)
-    return bounds
+        normalized.append(atom)
+    return normalized
+
+
+def condition_holds(condition: dict[str, Any], n: Any, x: Any) -> bool:
+    value = Fraction(condition["value"]["numerator"], condition["value"]["denominator"])
+    actual = n if condition["variable"] == "n" else x
+    return {"gt": actual > value, "ge": actual >= value, "lt": actual < value,
+            "le": actual <= value, "eq": actual == value, "ne": actual != value}[condition["relation"]]
+
+
+def condition_labels(data: dict[str, Any]) -> list[str]:
+    symbols = {"gt": ">", "ge": ">=", "lt": "<", "le": "<=", "eq": "=", "ne": "!="}
+    return ASSUMPTIONS + [f"{atom['variable']} {symbols[atom['relation']]} "
+                          f"{Fraction(atom['value']['numerator'], atom['value']['denominator'])}"
+                          for atom in normalized_conditions(data)]
+
+
+def condition_bounds(data: dict[str, Any]) -> list[int]:
+    """Legacy integer lower bounds. New callers should use normalized_conditions."""
+    return [atom["value"]["numerator"] for atom in normalized_conditions(data)
+            if atom["variable"] == "x" and atom["relation"] == "gt" and atom["value"]["denominator"] == 1]
+
+
+def _condition_domains(data: dict[str, Any]) -> dict:
+    # Edges are (value, strict); exclusions cannot contradict a singleton interval.
+    domains = {"x": [(Fraction(0), True), None, set()], "n": [None, None, set()]}
+    for atom in normalized_conditions(data):
+        variable, relation = atom["variable"], atom["relation"]
+        value = Fraction(atom["value"]["numerator"], atom["value"]["denominator"])
+        domain = domains[variable]
+        if relation == "ne":
+            domain[2].add(value)
+        if relation in {"gt", "ge", "eq"}:
+            edge = (value, relation == "gt")
+            if domain[0] is None or edge > domain[0]:
+                domain[0] = edge
+        if relation in {"lt", "le", "eq"}:
+            edge = (value, relation == "lt")
+            if domain[1] is None or (edge[0], not edge[1]) < (domain[1][0], not domain[1][1]):
+                domain[1] = edge
+    for variable, domain in domains.items():
+        lower, upper, excluded = domain
+        if variable == "n":
+            if lower is not None:
+                value, strict = lower
+                integer = value.numerator // value.denominator + 1 if strict else -(-value.numerator // value.denominator)
+                lower = (Fraction(integer), False)
+            if upper is not None:
+                value, strict = upper
+                integer = -(-value.numerator // value.denominator) - 1 if strict else value.numerator // value.denominator
+                upper = (Fraction(integer), False)
+            if lower is not None:
+                while lower[0] in excluded:
+                    lower = (lower[0] + 1, False)
+            if upper is not None:
+                while upper[0] in excluded:
+                    upper = (upper[0] - 1, False)
+            domain[0], domain[1] = lower, upper
+        if lower is not None and upper is not None:
+            if lower[0] > upper[0] or (lower[0] == upper[0] and
+                    (lower[1] or upper[1] or lower[0] in excluded)):
+                raise NeedsConditions(f"{variable} の条件が矛盾しています。両立する条件を指定してください。")
+    return domains
+
+
+def _condition_witness(data: dict[str, Any]) -> tuple[int, Fraction]:
+    if all(item.get("op") == "x_gt" for item in data.get("extra_conditions", [])):
+        return 0, Fraction(max([0] + condition_bounds(data)) + 1)
+    domains = _condition_domains(data)
+    values = {}
+    for variable, (lower, upper, excluded) in domains.items():
+        if variable == "n":
+            value = int(lower[0]) if lower is not None else int(upper[0]) if upper is not None else 0
+            step = 1 if lower is not None or upper is None else -1
+            while value in excluded:
+                value += step
+        elif upper is None:
+            value = lower[0] + 1
+            while value in excluded:
+                value += 1
+        elif lower[0] == upper[0]:
+            value = lower[0]
+        else:
+            value = (lower[0] + upper[0]) / 2
+            while value in excluded:
+                value = (lower[0] + value) / 2
+        values[variable] = value
+    return values["n"], Fraction(values["x"])
+
+
+def _lean_condition(atom: dict[str, Any]) -> str:
+    p, q = atom["value"]["numerator"], atom["value"]["denominator"]
+    symbol = {"gt": ">", "ge": "≥", "lt": "<", "le": "≤", "eq": "=", "ne": "≠"}[atom["relation"]]
+    if atom["variable"] == "x" and atom["relation"] == "gt" and q == 1:
+        return f"{p} < x"
+    variable = atom["variable"] if q == 1 else f"({atom['variable']} : ℝ)"
+    constant = str(p) if q == 1 else f"(({p} : ℝ) / {q})"
+    return f"{variable} {symbol} {constant}"
 
 
 def _recipe(recipe: Any) -> None:
@@ -411,19 +572,35 @@ def display_expr(node: dict[str, Any]) -> str:
 
 
 def theorem_statement(data: dict[str, Any]) -> str:
-    extra = "".join(f"{value} < x → " for value in condition_bounds(data))
+    extra = "".join(f"{_lean_condition(atom)} → " for atom in normalized_conditions(data))
     return f"∀ (n : ℤ) (x : ℝ), 0 < x → {extra}{lean_expr(data['lhs'])} = {lean_expr(data['rhs'])}"
 
 
-def _recipe_text(recipe: str, left: dict, right: dict, bounds: list[int] | None = None) -> str:
+def _recipe_text(recipe: str, left: dict, right: dict, bounds: list[dict] | None = None) -> str:
+    prefix = []
+    for index, atom in enumerate(bounds or []):
+        if atom["variable"] == "n":
+            real_atom = dict(atom, variable="x")
+            proposition = _lean_condition(real_atom).replace("x", "(n : ℝ)")
+            prefix.append(f"have hcondition_real_{index + 1} : {proposition} := by exact_mod_cast hcondition_{index + 1}")
+    body = _recipe_body(recipe, left, right, bounds)
+    if prefix and recipe == "power":
+        body = body.replace("(try norm_cast) <;>", "(try norm_cast) <;> (try push_cast) <;>")
+    return "\n".join(prefix + [body])
+
+
+def _recipe_body(recipe: str, left: dict, right: dict, bounds: list[dict] | None = None) -> str:
     orders: set[tuple[int, int]] = set()
     power_bases: list[dict] = []
     denominators: list[dict] = []
     has_new_calculus = False
+    has_origin_integral = False
 
     def collect(node: Any, inside_binding: bool = False) -> None:
-        nonlocal has_new_calculus
+        nonlocal has_new_calculus, has_origin_integral
         if isinstance(node, dict):
+            if node.get("op") == "integral" and _singular_origin_integral(node):
+                has_origin_integral = True
             if node.get("op") == "bessel_j" and node["order"].get("op") == "rational":
                 order = node["order"]
                 orders.add((order["numerator"], order["denominator"]))
@@ -453,10 +630,15 @@ def _recipe_text(recipe: str, left: dict, right: dict, bounds: list[int] | None 
         return "\n".join(lines)
     if recipe == "field" and bounds:
         lines = []
+        alternatives = ""
+        for index, atom in enumerate(bounds):
+            if atom["relation"] == "ne":
+                name = f"hcondition_real_{index + 1}" if atom["variable"] == "n" else f"hcondition_{index + 1}"
+                alternatives += f" | (intro hzero; apply {name}; linarith)"
         for index, denominator in enumerate(denominators):
             lines += [f"have hdenominator_{index} : {lean_expr(denominator)} ≠ 0 := by",
                       f"  have hreal : {lean_expr(denominator, 'real')} ≠ 0 := by",
-                      "    first | positivity | (apply ne_of_gt; linarith) | (apply ne_of_lt; linarith)",
+                      "    first | positivity | (apply ne_of_gt; linarith) | (apply ne_of_lt; linarith)" + alternatives,
                       "  exact_mod_cast hreal"]
         rules = ", ".join(f"hdenominator_{index}" for index in range(len(denominators)))
         lines += [f"field_simp [{rules}] <;> ring"]
@@ -467,6 +649,10 @@ def _recipe_text(recipe: str, left: dict, right: dict, bounds: list[int] | None 
                  "have hsingular := BesselProofAgent.integral_inv_sqrt x hx",
                  "have hweighted := BesselProofAgent.integral_sqrt_mul_bessel_neg_half x hx"]
         names = ["hsingular", "hweighted"]
+        if has_origin_integral:
+            lines += ["have horigin_integrable := BesselProofAgent.intervalIntegrable_origin_weighted_bessel x hx",
+                      "have horigin := BesselProofAgent.integral_origin_weighted_bessel x hx"]
+            names.append("horigin")
         for index, (p, q) in enumerate(sorted(orders)):
             lines += [f"have hderivative_{index} := BesselProofAgent.deriv_bessel_rational ({p} : ℤ) ({q} : ℕ) (by norm_num) x hx",
                       f"have hsymmetric_{index} := BesselProofAgent.deriv_bessel_real_symmetric (({p} : ℂ) / ({q} : ℂ)) x hx",
@@ -496,13 +682,14 @@ def render_lean(data: dict[str, Any], kind: str = "proof") -> str:
         raise InputError("Unknown certificate kind.")
     lines = ["import BesselProofAgent", "", "namespace BesselAgentCandidate", ""]
     statement = theorem_statement(data)
-    bounds = condition_bounds(data)
+    bounds = normalized_conditions(data)
     hypothesis_names = "".join(f" hcondition_{index + 1}" for index in range(len(bounds)))
-    hypothesis_binders = "".join(f" (hcondition_{index + 1} : {value} < x)" for index, value in enumerate(bounds))
+    hypothesis_binders = "".join(f" (hcondition_{index + 1} : {_lean_condition(atom)})" for index, atom in enumerate(bounds))
     if kind == "refutation":
-        witness = max([0] + bounds) + 1
+        witness_n, witness_x = _condition_witness(data)
+        witness = str(witness_x) if witness_x.denominator == 1 else f"({witness_x.numerator} / {witness_x.denominator} : ℝ)"
         lines += [f"theorem target : ¬ ({statement}) := by", "  intro h",
-                  f"  have hbad := h 0 {witness} (by norm_num)" + " (by norm_num)" * len(bounds), "  first",
+                  f"  have hbad := h {witness_n if witness_n >= 0 else '(' + str(witness_n) + ')'} {witness} (by norm_num)" + " (by norm_num)" * len(bounds), "  first",
                   "  | have bad : (0 : ℂ) = 1 := by linear_combination hbad",
                   "    norm_num at bad",
                   "  | have bad : (0 : ℂ) = 1 := by linear_combination -hbad",
@@ -589,14 +776,15 @@ def _report(data: dict[str, Any], result: dict[str, Any]) -> str:
     lines = [f"# {states[result['status']]}", "",
              "対象：すべての整数 n と正の実数 x に対する次の等式。", "",
              f"`{display_expr(data['lhs'])} = {display_expr(data['rhs'])}`", ""]
-    if condition_bounds(data):
-        lines += ["追加条件：" + "、".join(f"x > {value}" for value in condition_bounds(data)) + "。", ""]
+    if data.get("extra_conditions"):
+        lines += ["追加条件：" + "、".join(condition_labels(data)[1:]) + "。", ""]
     if result["status"] == "proved":
         lines += ["固定した命題の証明と依存公理の監査が完了しました。", ""]
         if data["proof"]["mode"] == "steps":
             for index, step in enumerate(data["proof"]["steps"], 1):
                 method = {"bessel": "整数次数の符号関係と代数式の整理", "ring": "代数式の整理",
                           "power": "正の実底の有理数冪と平方根の公式",
+                          "conditions": "明示された変数の比較条件と代数式の整理",
                           "field": "非零条件を用いた分数式の整理", "recurrence": "三項漸化式と代数式の整理",
                           "calculus": "微分・積分の公式と代数式の整理"}[step["recipe"]]
                 lines += [f"{index}. `{display_expr(step['before'])} = {display_expr(step['after'])}`",
@@ -604,8 +792,8 @@ def _report(data: dict[str, Any], result: dict[str, Any]) -> str:
             lines += ["以上の等式を連結し、元の左辺から右辺への証明を検査しました。", "",
                       "AIが提案した自由記述の理由は request.json に保存しています。上の説明は検査した構造化手順から生成しています。", ""]
     elif result["status"] == "refuted":
-        witness = max([0] + condition_bounds(data)) + 1
-        lines += [f"n = 0、x = {witness} を用いて、元の全称命題の否定をLeanで証明しました。", ""]
+        witness_n, witness = _condition_witness(data)
+        lines += [f"n = {witness_n}、x = {witness} を用いて、元の全称命題の否定をLeanで証明しました。", ""]
     else:
         lines += ["今回の手順と制限時間で証明・反証を確定できませんでした。", "",
                   "詳細は result.json の各試行に記録しています。", ""]
