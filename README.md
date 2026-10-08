@@ -4,19 +4,29 @@
 
 初期対象は、すべての整数 `n` と正の実数 `x` に対する等式です。`J n x` は mathlib の `Complex.besselJ (n : ℂ) (x : ℂ)` と定義し、等式を複素数上で検査します。整数次数の符号関係、一般三項漸化式、微分公式、定積分を扱います。固定した有理数次数も入力できます。
 
+利用者の検証履歴は、`--archive` を指定すると本体外の `~/BesselProofAgentData/archive` に保存します。
+4状態の結果・元入力・条件・証拠を追記し、Markdown目録とJSON索引から検索できます。
+AI生成も同じ命題の保存証拠を再検査して再利用します。
+[蓄積・検索の使い方](docs/archive.md)と[Codex用の実行手順](docs/codex-workflow.md)を参照してください。
+
 ## 準備
 
-必要なものは Python 3.12以上、Git、[elan / Lean](https://lean-lang.org/install/) です。Python追加パッケージは使いません。Lean版とmathlibのコミットはリポジトリ内で固定しています。
+必要なものは Python 3.12以上、Git、[elan / Lean](https://lean-lang.org/install/) です。Python追加パッケージは使いません。Git cloneとZIPの取得手順、初回診断、問題の切り分けは [セットアップガイド](docs/setup.md) を参照してください。ZIPからの利用でも、依存取得のためにGitが必要です。
+
+取得したプロジェクトのディレクトリで実行します。
 
 ```sh
-lake update
+elan toolchain install leanprover/lean4:v4.34.0
 lake exe cache get
 lake build
-BESSEL_RUN_LEAN_TESTS=1 python3 -m unittest discover -s tests -v
-python3 scripts/replay_examples.py
+python3 scripts/doctor.py
+python3 -m bessel_agent verify demo/direct/request.json --output runs/first-check
+python3 -m bessel_agent replay runs/first-check
 ```
 
-初回のmathlib取得にはネット接続と数GBの空き容量が必要です。環境取得後の保存証明の再検証は、AIやAPIキーを使わずに実行できます。
+Lean版・mathlib・間接依存のコミットは `lean-toolchain`、`lakefile.toml`、`lake-manifest.json` に固定しています。初回取得にはネット接続と数GB規模の空き容量が必要です。準備後の保存証明の検査・再検査は、Codex CLIやAPIキーを使わずに実行できます。新しいAI候補の生成には本人のCodex認証を用意します。
+
+個人の蓄積記録の既定保存先はリポジトリ外の `~/BesselProofAgentData/archive` です。共有・公開する記録は利用者本人が選びます。
 
 ## 保存された候補を検証する
 
@@ -227,3 +237,7 @@ python3 -m bessel_agent.numeric examples/numeric-derivative-candidate.target.jso
 Leanの依存公理は `propext`、`Classical.choice`、`Quot.sound` のみを許可します。`sorryAx` を含む証明穴や独自公理は受理されません。信頼する構成要素は、固定したLean/mathlib、リポジトリの検証器、実行環境です。保存された生成物は再検査時に元入力から再生成されます。
 
 GitHub Actionsでは、固定した環境を準備し、入力境界・誤式・段階変形の試験と、両経路の保存済みAI候補の検証を行います。CIの再検証にAI認証情報は渡しません。
+
+## ライセンス
+
+配布本体と同梱サンプルは [MIT License](LICENSE) です。mathlibなどの依存には各配布元のライセンスが適用されます。[依存の出典とライセンス](docs/setup.md#ライセンスと依存の出典)を参照してください。外部保存先に蓄積する利用者の記録は、本人が共有・公開の扱いを選びます。

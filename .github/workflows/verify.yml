@@ -20,6 +20,8 @@ jobs:
           test: 'false'
           lint: 'false'
           use-mathlib-cache: 'true'
+      - name: Check first-run environment
+        run: python3 scripts/doctor.py
       - name: Input boundary and Lean verification tests
         env:
           BESSEL_RUN_LEAN_TESTS: '1'
