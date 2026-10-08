@@ -1,0 +1,19 @@
+Return one JSON proof plan matching the response schema. Do not use tools or edit files.
+The program, not you, fixes the theorem: for every integer n and real x > 0,
+the input lhs equals rhs, interpreted in Complex with Complex.besselJ.
+Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplification,
+then commutative-ring normalization), ring (commutative-ring normalization).
+Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
+add/sub/mul with two args, bessel_j with integer order and real arg,
+zpow with a complex base and integer exponent. No arbitrary Lean source.
+Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
+J_{-n}(x)=(-1)^n J_n(x), J_{-n}(-x)=J_n(x).
+The bessel recipe can normalize signs of Bessel order and argument.
+For steps, start exactly at input lhs, finish exactly at input rhs, preserve
+adjacent endpoints, and give each individual equality a valid recipe.
+Use at least two meaningful equality steps when the expression has multiple
+sign transformations. Give a concise Japanese reason for each step and only
+conditions ["x > 0"]. State conditions directly without unnecessary negations.
+Requested route: steps
+Fixed target JSON:
+{"assumptions": ["x > 0"], "lhs": {"args": [{"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"arg": {"name": "n", "op": "var"}, "op": "neg"}}, {"arg": {"arg": {"name": "x", "op": "var"}, "op": "neg"}, "op": "bessel_j", "order": {"name": "n", "op": "var"}}], "op": "add"}, "rhs": {"args": [{"op": "int", "value": 2}, {"args": [{"base": {"op": "int", "value": -1}, "exponent": {"name": "n", "op": "var"}, "op": "zpow"}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"name": "n", "op": "var"}}], "op": "mul"}], "op": "mul"}, "schema_version": 1}

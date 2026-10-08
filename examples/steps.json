@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "assumptions": [
+    "x > 0"
+  ],
+  "lhs": {
+    "op": "bessel_j",
+    "order": {
+      "op": "neg",
+      "arg": {
+        "op": "var",
+        "name": "n"
+      }
+    },
+    "arg": {
+      "op": "neg",
+      "arg": {
+        "op": "var",
+        "name": "x"
+      }
+    }
+  },
+  "rhs": {
+    "op": "bessel_j",
+    "order": {
+      "op": "var",
+      "name": "n"
+    },
+    "arg": {
+      "op": "var",
+      "name": "x"
+    }
+  },
+  "proof": {
+    "mode": "steps",
+    "steps": [
+      {
+        "before": {
+          "op": "bessel_j",
+          "order": {
+            "op": "neg",
+            "arg": {
+              "op": "var",
+              "name": "n"
+            }
+          },
+          "arg": {
+            "op": "neg",
+            "arg": {
+              "op": "var",
+              "name": "x"
+            }
+          }
+        },
+        "after": {
+          "op": "mul",
+          "args": [
+            {
+              "op": "zpow",
+              "base": {
+                "op": "int",
+                "value": -1
+              },
+              "exponent": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              }
+            },
+            {
+              "op": "bessel_j",
+              "order": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              },
+              "arg": {
+                "op": "var",
+                "name": "x"
+              }
+            }
+          ]
+        },
+        "reason": "整数次数の引数の符号反転を適用する。",
+        "conditions": [
+          "x > 0"
+        ],
+        "recipe": "bessel"
+      },
+      {
+        "before": {
+          "op": "mul",
+          "args": [
+            {
+              "op": "zpow",
+              "base": {
+                "op": "int",
+                "value": -1
+              },
+              "exponent": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              }
+            },
+            {
+              "op": "bessel_j",
+              "order": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              },
+              "arg": {
+                "op": "var",
+                "name": "x"
+              }
+            }
+          ]
+        },
+        "after": {
+          "op": "mul",
+          "args": [
+            {
+              "op": "zpow",
+              "base": {
+                "op": "int",
+                "value": -1
+              },
+              "exponent": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              }
+            },
+            {
+              "op": "mul",
+              "args": [
+                {
+                  "op": "zpow",
+                  "base": {
+                    "op": "int",
+                    "value": -1
+                  },
+                  "exponent": {
+                    "op": "var",
+                    "name": "n"
+                  }
+                },
+                {
+                  "op": "bessel_j",
+                  "order": {
+                    "op": "var",
+                    "name": "n"
+                  },
+                  "arg": {
+                    "op": "var",
+                    "name": "x"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "reason": "負次数と正次数の関係を適用する。",
+        "conditions": [
+          "x > 0"
+        ],
+        "recipe": "bessel"
+      },
+      {
+        "before": {
+          "op": "mul",
+          "args": [
+            {
+              "op": "zpow",
+              "base": {
+                "op": "int",
+                "value": -1
+              },
+              "exponent": {
+                "op": "neg",
+                "arg": {
+                  "op": "var",
+                  "name": "n"
+                }
+              }
+            },
+            {
+              "op": "mul",
+              "args": [
+                {
+                  "op": "zpow",
+                  "base": {
+                    "op": "int",
+                    "value": -1
+                  },
+                  "exponent": {
+                    "op": "var",
+                    "name": "n"
+                  }
+                },
+                {
+                  "op": "bessel_j",
+                  "order": {
+                    "op": "var",
+                    "name": "n"
+                  },
+                  "arg": {
+                    "op": "var",
+                    "name": "x"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "op": "bessel_j",
+          "order": {
+            "op": "var",
+            "name": "n"
+          },
+          "arg": {
+            "op": "var",
+            "name": "x"
+          }
+        },
+        "reason": "整数次数の符号因子を掛け合わせて整理する。",
+        "conditions": [
+          "x > 0"
+        ],
+        "recipe": "bessel"
+      }
+    ]
+  }
+}

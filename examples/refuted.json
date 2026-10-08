@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "assumptions": [
+    "x > 0"
+  ],
+  "lhs": {
+    "op": "add",
+    "args": [
+      {
+        "op": "bessel_j",
+        "order": {
+          "op": "var",
+          "name": "n"
+        },
+        "arg": {
+          "op": "var",
+          "name": "x"
+        }
+      },
+      {
+        "op": "int",
+        "value": 1
+      }
+    ]
+  },
+  "rhs": {
+    "op": "bessel_j",
+    "order": {
+      "op": "var",
+      "name": "n"
+    },
+    "arg": {
+      "op": "var",
+      "name": "x"
+    }
+  },
+  "proof": {
+    "mode": "direct",
+    "recipe": "ring"
+  }
+}

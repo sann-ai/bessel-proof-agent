@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "assumptions": [
+    "x > 0"
+  ],
+  "lhs": {
+    "op": "bessel_j",
+    "order": {
+      "op": "var",
+      "name": "n"
+    },
+    "arg": {
+      "op": "neg",
+      "arg": {
+        "op": "var",
+        "name": "x"
+      }
+    }
+  },
+  "rhs": {
+    "op": "mul",
+    "args": [
+      {
+        "op": "zpow",
+        "base": {
+          "op": "int",
+          "value": -1
+        },
+        "exponent": {
+          "op": "var",
+          "name": "n"
+        }
+      },
+      {
+        "op": "bessel_j",
+        "order": {
+          "op": "var",
+          "name": "n"
+        },
+        "arg": {
+          "op": "var",
+          "name": "x"
+        }
+      }
+    ]
+  },
+  "proof": {
+    "mode": "direct",
+    "recipe": "bessel"
+  }
+}

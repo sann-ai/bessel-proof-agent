@@ -1,0 +1,30 @@
+name: Reverify saved proofs
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: leanprover/lean-action@f061402b660e0c34644504b324e830f2991d4865 # v1
+        with:
+          build: 'true'
+          test: 'false'
+          lint: 'false'
+          use-mathlib-cache: 'true'
+      - name: Input boundary and Lean verification tests
+        env:
+          BESSEL_RUN_LEAN_TESTS: '1'
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile mathematical examples and print axiom dependencies
+        run: lake env lean BesselProofAgent/Examples.lean
+      - name: Reverify AI-generated saved proofs
+        run: python3 scripts/replay_examples.py

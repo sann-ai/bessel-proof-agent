@@ -1,0 +1,29 @@
+{
+  "status": "proved",
+  "statement": "∀ (n : ℤ) (x : ℝ), 0 < x → ((BesselProofAgent.J (-n) x) + (BesselProofAgent.J n (-x))) = ((2 : ℂ) * (((-1 : ℂ) ^ n) * (BesselProofAgent.J n x)))",
+  "environment": {
+    "lean-toolchain": "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632",
+    "lake-manifest.json": "b24bb00a548acda036d0c71d7d8ad51999ece58642815fc003106c922aefda59",
+    "lakefile.toml": "afa1976394e06f2282ad3710f63d83f8b773bb484d3ffcff36a0ce74f422ed78",
+    "BesselProofAgent.lean": "5aea6c602f58d9dd557f0cbd34dda2486f274ffb3f38d1e865b22bf81bb4cab8",
+    "BesselProofAgent/Basic.lean": "d58249366aeb1248ea498d7418dc11a6afc9b18f4fcd2a3cce903a01a4d8da6f",
+    "BesselProofAgent/Examples.lean": "78ed25b22701aec27969045ea94f164ae05ed599fe6e9f2398c521183cbe851a"
+  },
+  "attempts": [
+    {
+      "accepted": true,
+      "stdout": "<project>/demo/direct/proof_attempt.lean:7:90: warning: This simp argument is unused:\n  BesselProofAgent.sign_cancel\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc,\n    BesselProofAgent.sign_mul_self, one_mul, neg_neg]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/demo/direct/proof_attempt.lean:7:120: warning: This simp argument is unused:\n  BesselProofAgent.sign_mul_self\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc,\n    BesselProofAgent.sign_cancel, one_mul, neg_neg]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/demo/direct/proof_attempt.lean:7:152: warning: This simp argument is unused:\n  one_mul\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc,\n    BesselProofAgent.sign_cancel, BesselProofAgent.sign_mul_self, neg_neg]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/demo/direct/proof_attempt.lean:7:161: warning: This simp argument is unused:\n  neg_neg\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc,\n    BesselProofAgent.sign_cancel, BesselProofAgent.sign_mul_self, one_mul]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/demo/direct/proof_attempt.lean:7:171: warning: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice\n\nNote: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`\nBESSEL_AUDIT_BEGIN\n'BesselAgentCandidate.target' depends on axioms: [propext, Classical.choice, Quot.sound]\nBESSEL_AUDIT_END\n",
+      "stderr": "",
+      "exit_code": 0,
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "kind": "proof"
+    }
+  ],
+  "certificate_kind": "proof",
+  "certificate_sha256": "330e1138dcd3347907cabaff0bac6af0af751cb24f279af5724680242860355e",
+  "request_sha256": "ca82115fffe3a09ec3ccad7d20a2e2342f93166f4461473e2f6c9c67ee76f33a"
+}
