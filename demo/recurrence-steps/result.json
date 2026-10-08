@@ -5,12 +5,13 @@
     "lean-toolchain": "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632",
     "lake-manifest.json": "b24bb00a548acda036d0c71d7d8ad51999ece58642815fc003106c922aefda59",
     "lakefile.toml": "afa1976394e06f2282ad3710f63d83f8b773bb484d3ffcff36a0ce74f422ed78",
-    "BesselProofAgent.lean": "e19e0c9a32b8e14e225ed2875ac49ec3cbf9dd23397ff195e5f6b24ecaea7040",
+    "BesselProofAgent.lean": "b5cdb5a09a1526bdfed0f77a0663b39b148c0801905199a1d49713fcf85bf576",
     "BesselProofAgent/Basic.lean": "d58249366aeb1248ea498d7418dc11a6afc9b18f4fcd2a3cce903a01a4d8da6f",
     "BesselProofAgent/Calculus.lean": "62ba7a53d97fbc32059bb9a63c4ccea6f8a84d3d116f4463224a4b5e67042a75",
     "BesselProofAgent/Derivative.lean": "12749753b9805d04d4dd8317eb2a9a8e17e2a07343a68b223ddf69ff24101948",
     "BesselProofAgent/Examples.lean": "78ed25b22701aec27969045ea94f164ae05ed599fe6e9f2398c521183cbe851a",
     "BesselProofAgent/NonintegerCalculus.lean": "15b4b6709900baf6ddd84984c42205373e9310666f2b21252632f22a494965fc",
+    "BesselProofAgent/OriginSingularBessel.lean": "c0cd353a5a5a4e8ca04a309a9896dc0aa7de579214bb5a607dbfb25173d52cab",
     "BesselProofAgent/RealCalculus.lean": "754a717ea5704e34751f15576e78e960e07a143a4866bb84c4655030cede14b8",
     "BesselProofAgent/Recurrence.lean": "ac74881ddb342a12218e0db00082dbac10f6922caae5a65b78a1bdaab319e94f",
     "BesselProofAgent/SingularIntegrals.lean": "f0e6708aeeeb85a1eb1c0951ff631ee09c0ce18ac4cd0f05a1cba0570a633101"
@@ -18,7 +19,7 @@
   "attempts": [
     {
       "accepted": true,
-      "stdout": "/private/var/folders/m8/_5mk1wp97jv1mj31125dg2pw0000gn/T/bessel-final-t2bd5mg6/proof_attempt.lean:10:4: warning: Unused tactic linter: `linear_combination -hrec` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n/private/var/folders/m8/_5mk1wp97jv1mj31125dg2pw0000gn/T/bessel-final-t2bd5mg6/proof_attempt.lean:11:4: warning: Unused tactic linter: `(try simp only [hrec]) <;> ring` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n/private/var/folders/m8/_5mk1wp97jv1mj31125dg2pw0000gn/T/bessel-final-t2bd5mg6/proof_attempt.lean:10:4: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n/private/var/folders/m8/_5mk1wp97jv1mj31125dg2pw0000gn/T/bessel-final-t2bd5mg6/proof_attempt.lean:11:4: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n/private/var/folders/m8/_5mk1wp97jv1mj31125dg2pw0000gn/T/bessel-final-t2bd5mg6/proof_attempt.lean:13:32: warning: Variable name `hx` is not explicitly referenced.\n\nHint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:\n  [apply] _hx\n\nNote: This linter can be disabled with `set_option linter.unusedVariables false`\nBESSEL_AUDIT_BEGIN\n'BesselAgentCandidate.target' depends on axioms: [propext, Classical.choice, Quot.sound]\nBESSEL_AUDIT_END\n",
+      "stdout": "<project>/runs/final-refresh-recurrence-steps/proof_attempt.lean:10:4: warning: Unused tactic linter: `linear_combination -hrec` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n<project>/runs/final-refresh-recurrence-steps/proof_attempt.lean:11:4: warning: Unused tactic linter: `(try simp only [hrec]) <;> ring` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n<project>/runs/final-refresh-recurrence-steps/proof_attempt.lean:10:4: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n<project>/runs/final-refresh-recurrence-steps/proof_attempt.lean:11:4: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n<project>/runs/final-refresh-recurrence-steps/proof_attempt.lean:13:32: warning: Variable name `hx` is not explicitly referenced.\n\nHint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:\n  [apply] _hx\n\nNote: This linter can be disabled with `set_option linter.unusedVariables false`\nBESSEL_AUDIT_BEGIN\n'BesselAgentCandidate.target' depends on axioms: [propext, Classical.choice, Quot.sound]\nBESSEL_AUDIT_END\n",
       "stderr": "",
       "exit_code": 0,
       "axioms": [

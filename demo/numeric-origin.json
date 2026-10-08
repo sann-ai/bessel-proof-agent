@@ -1,0 +1,25 @@
+{
+  "status": "unresolved",
+  "diagnostic": "no_mismatch_found",
+  "checked_samples": 14,
+  "excluded_by_conditions": 14,
+  "candidates": [],
+  "skipped_reasons": [],
+  "precision_digits": 60,
+  "relative_tolerance": "1e-25",
+  "calculus_relative_tolerance": "1e-9",
+  "general_rational_relative_tolerance": "1e-10",
+  "general_rational_gamma_backend": "math.gamma_binary64",
+  "max_series_terms": 500,
+  "max_quadrature_subdivisions": 512,
+  "max_evaluations_per_sample": 50000,
+  "methods": [
+    "binary64_gamma_for_rational_order",
+    "bounded_bessel_series",
+    "open_midpoint_richardson",
+    "zero_endpoint_square_substitution"
+  ],
+  "largest_estimated_error": "8.77410073988303913063551742314950624988976488650090132746351E-11",
+  "error_estimate_kind": "empirical_refinement_difference",
+  "explanation": "有限標本の数値診断です。微分は中心差分、積分は開区間求積の細分差から誤差を推定します。打切り・収束失敗は記録し、反証の確定には元命題の否定をLeanで検査します。"
+}

@@ -1,0 +1,36 @@
+{
+  "status": "proved",
+  "statement": "∀ (n : ℤ) (x : ℝ), 0 < x → x ≤ 2 → (x : ℝ) ≠ ((1 : ℝ) / 2) → ((intervalIntegral (fun (x : ℝ) => (((Real.rpow x ((1 : ℝ) / (4 : ℝ))) : ℂ) * (Complex.besselJ (((-3 : ℝ) / (4 : ℝ) : ℝ) : ℂ) ((x) : ℂ)))) (0 : ℝ) x MeasureTheory.volume) + (((Real.rpow x ((1 : ℝ) / (4 : ℝ))) : ℂ) * (Complex.besselJ (((1 : ℝ) / (4 : ℝ) : ℝ) : ℂ) ((x) : ℂ)))) = (((2 : ℂ) * ((Real.rpow x ((1 : ℝ) / (4 : ℝ))) : ℂ)) * (Complex.besselJ (((1 : ℝ) / (4 : ℝ) : ℝ) : ℂ) ((x) : ℂ)))",
+  "environment": {
+    "lean-toolchain": "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632",
+    "lake-manifest.json": "b24bb00a548acda036d0c71d7d8ad51999ece58642815fc003106c922aefda59",
+    "lakefile.toml": "afa1976394e06f2282ad3710f63d83f8b773bb484d3ffcff36a0ce74f422ed78",
+    "BesselProofAgent.lean": "b5cdb5a09a1526bdfed0f77a0663b39b148c0801905199a1d49713fcf85bf576",
+    "BesselProofAgent/Basic.lean": "d58249366aeb1248ea498d7418dc11a6afc9b18f4fcd2a3cce903a01a4d8da6f",
+    "BesselProofAgent/Calculus.lean": "62ba7a53d97fbc32059bb9a63c4ccea6f8a84d3d116f4463224a4b5e67042a75",
+    "BesselProofAgent/Derivative.lean": "12749753b9805d04d4dd8317eb2a9a8e17e2a07343a68b223ddf69ff24101948",
+    "BesselProofAgent/Examples.lean": "78ed25b22701aec27969045ea94f164ae05ed599fe6e9f2398c521183cbe851a",
+    "BesselProofAgent/NonintegerCalculus.lean": "15b4b6709900baf6ddd84984c42205373e9310666f2b21252632f22a494965fc",
+    "BesselProofAgent/OriginSingularBessel.lean": "c0cd353a5a5a4e8ca04a309a9896dc0aa7de579214bb5a607dbfb25173d52cab",
+    "BesselProofAgent/RealCalculus.lean": "754a717ea5704e34751f15576e78e960e07a143a4866bb84c4655030cede14b8",
+    "BesselProofAgent/Recurrence.lean": "ac74881ddb342a12218e0db00082dbac10f6922caae5a65b78a1bdaab319e94f",
+    "BesselProofAgent/SingularIntegrals.lean": "f0e6708aeeeb85a1eb1c0951ff631ee09c0ce18ac4cd0f05a1cba0570a633101"
+  },
+  "attempts": [
+    {
+      "accepted": true,
+      "stdout": "<project>/runs/final-refresh-origin-direct/proof_attempt.lean:5:20: warning: Variable name `n` is not explicitly referenced.\n\nHint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:\n  [apply] _n\n\nNote: This linter can be disabled with `set_option linter.unusedVariables false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:20: warning: This simp argument is unused:\n  hsingular\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hweighted, horigin, hderivative_0, hintegral_0, hderivative_1, hintegral_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:31: warning: This simp argument is unused:\n  hweighted\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hsingular, horigin, hderivative_0, hintegral_0, hderivative_1, hintegral_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:51: warning: This simp argument is unused:\n  hderivative_0\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hsingular, hweighted, horigin, hintegral_0, hderivative_1, hintegral_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:66: warning: This simp argument is unused:\n  hintegral_0\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hsingular, hweighted, horigin, hderivative_0, hderivative_1, hintegral_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:79: warning: This simp argument is unused:\n  hderivative_1\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hsingular, hweighted, horigin, hderivative_0, hintegral_0, hintegral_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:94: warning: This simp argument is unused:\n  hintegral_1\n\nHint: Omit it from the simp argument list.\n  [apply] simp only [hsingular, hweighted, horigin, hderivative_0, hintegral_0, hderivative_1]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:128: warning: Unused tactic linter: `(field_simp [hxC] <;> ring)` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:22:4: warning: Unused tactic linter: `(try\n      simp only [hsingular, hweighted, horigin, hsymmetric_0, hintegral_0, hsymmetric_1, hintegral_1]) <;>\n  (solve\n    | ring\n    | (field_simp [hxC] <;> ring))` does nothing\n\nNote: This linter can be disabled with `set_option linter.unusedTactic false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:128: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:22:4: warning: this tactic is never executed\n\nNote: This linter can be disabled with `set_option linter.unreachableTactic false`\n<project>/runs/final-refresh-origin-direct/proof_attempt.lean:21:108: warning: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice\n\nNote: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`\nBESSEL_AUDIT_BEGIN\n'BesselAgentCandidate.target' depends on axioms: [propext, Classical.choice, Quot.sound]\nBESSEL_AUDIT_END\n",
+      "stderr": "",
+      "exit_code": 0,
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "kind": "proof"
+    }
+  ],
+  "certificate_kind": "proof",
+  "certificate_sha256": "75fa13001ac6405137cd1b9d50b8b3c537a1a84e2e511a02c9590b76609ae467",
+  "request_sha256": "d724bdba6fac3cbec62ae7c2baf1a148e96c8d76785d10c9b7702d9d786a2696"
+}

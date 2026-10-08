@@ -60,3 +60,22 @@ J'_{1/2}(x)+\int_0^x t^{-1/2}dt
 `numeric-calculus-candidates.json` は半整数の微分式の符号を変えた入力の診断です。
 元入力は `examples/numeric-derivative-candidate.target.json`、結果はunresolvedで、
 中心差分の手法・推定誤差・比較閾値も記録しています。
+
+## 原点で特異なBessel積分と複数条件
+
+`origin.target.json` は `examples/origin-singular-composed.txt` のTeX入力を正規化した命題です。
+
+\[
+\int_0^x t^{1/4}J_{-3/4}(t)\,dt+x^{1/4}J_{1/4}(x)
+=2x^{1/4}J_{1/4}(x),\qquad 0<x\leq2,\quad x\ne\tfrac12.
+\]
+
+元入力には `DeclareMathOperator`、`equation`、末尾のtext条件を使用しています。
+`origin-direct` と `origin-steps` は、同じ固定命題について実際にAI生成した候補で、
+両方とも初回のLean検証を通過しました。直接経路はcalculus、段階経路は積分評価と
+同類項整理の2段です。可積分性と全条件を含む証明の依存公理は標準3公理です。
+数学ライブラリには被積分関数のノルムの原点での右発散と、原始関数の右極限0も保存しています。
+
+`numeric-origin.json` は同じ命題の診断です。条件を満たす14標本で許容差を超える差は見つからず、
+Gammaの倍精度評価、二乗変数変換、求積の推定誤差を記録しています。
+数値診断の状態はunresolvedで、証明結果は各ルートのLean検査に記録します。
