@@ -1,10 +1,11 @@
 import copy
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 
-from bessel_agent.core import InputError, NeedsConditions, ROOT, load_json, render_lean, validate_request, verify
+from bessel_agent.core import InputError, NeedsConditions, ROOT, load_json, render_lean, replay, validate_request, verify
 from bessel_agent.parser import parse_identity
 
 
@@ -55,7 +56,7 @@ class ParserTests(unittest.TestCase):
                 parse_identity(text, DOMAIN)
 
     def test_unsafe_denominators_and_powers_need_conditions(self):
-        for text in ["1/J_n(x)=0", "0^(-1)=0", "1/n=0", "x^(1/2)=0", "J_{1/2}(-x)=0"]:
+        for text in ["1/J_n(x)=0", "0^(-1)=0", "1/n=0", "(-x)^(1/2)=0", "J_{1/2}(-x)=0"]:
             with self.subTest(text=text), self.assertRaises(NeedsConditions):
                 parse_identity(text, DOMAIN)
         for text in ["x/x=1", "x^(-1)=1/x", "(2*x)/(2*x)=1", "x^2=x*x"]:
@@ -85,6 +86,74 @@ class ParserTests(unittest.TestCase):
         source = render_lean(data)
         self.assertIn("deriv (fun (x : ℝ) =>", source)
         self.assertIn("∀ (n : ℤ) (x : ℝ), 0 < x →", source)
+
+    def test_japanese_conditions_and_extra_assumptions_are_preserved(self):
+        target = parse_identity("(x-1)/(x-1)=1", "nは整数、x > 1")
+        self.assertEqual(target["extra_conditions"], [{"op": "x_gt", "value": 1}])
+        target["proof"] = {"mode": "direct", "recipe": "field"}
+        self.assertIn("0 < x → 1 < x →", render_lean(target))
+        self.assertIn("intro n x hx hcondition_1", render_lean(target))
+        self.assertEqual(parse_identity("J_n(x)=J_n(x)", "nは整数、xは正の実数")["assumptions"], ["x > 0"])
+        with self.assertRaises(NeedsConditions):
+            parse_identity("(x-1)/(x-1)=1", "x > 0")
+
+    def test_real_rational_powers_and_sqrt_keep_real_semantics(self):
+        target = parse_identity(r"x^{1/2}=\sqrt{x}", "x > 0")
+        self.assertEqual(target["lhs"]["op"], "real_rpow")
+        self.assertEqual(target["rhs"]["op"], "sqrt")
+        target["proof"] = {"mode": "direct", "recipe": "power"}
+        source = render_lean(target)
+        self.assertIn("Real.rpow", source)
+        self.assertIn("Real.sqrt", source)
+        self.assertNotIn("Complex.cpow", source)
+        with self.assertRaises(NeedsConditions):
+            parse_identity("sqrt(x-1)=0", "x > 0")
+        validate_request(parse_identity("sqrt(x-1)=sqrt(x-1)", "x > 1"), require_proof=False)
+
+    def test_positive_interval_and_integrable_singularity_have_separate_gates(self):
+        validate_request(parse_identity("int(1,x,J_{1/2}(t),t)=0", "x > 0"), require_proof=False)
+        validate_request(parse_identity("int(0,x,t^(-1/2),t)=2*sqrt(x)", "x > 0"), require_proof=False)
+        for text in ["int(0,x,1/t,t)=0", "int(0,x,1/(t-1),t)=0",
+                     "int(1,x,1/(t-1),t)=0", "int(0,x,t^(-3/2),t)=0",
+                     "int(0,x,D(1/(t-1)),t)=0"]:
+            with self.subTest(text=text), self.assertRaises(NeedsConditions):
+                parse_identity(text, "x > 2")
+        with self.assertRaisesRegex(NeedsConditions, "not_intervalIntegrable_inv"):
+            parse_identity("int(0,x,1/t,t)=0", "x > 0")
+
+    def test_bounded_macros_expand_to_the_same_ast(self):
+        macro = r"\newcommand{\J}[2]{J_{#1}(#2)} \J{n}{-x}=(-1)^n\J{n}{x}"
+        self.assertEqual(parse_identity(macro, DOMAIN), parse_identity("J_n(-x)=(-1)^n J_n(x)", DOMAIN))
+        nested = r"\newcommand{\J}[2]{J_{#1}(#2)} \newcommand{\Half}[1]{\J{1/2}{#1}} \Half{x}=J_{1/2}(x)"
+        validate_request(parse_identity(nested, "x > 0"), require_proof=False)
+
+    def test_macro_redefinition_recursion_malformed_and_scope_are_rejected(self):
+        invalid = [r"\newcommand{\frac}[2]{#1} 1=1", r"\newcommand{\J}[1]{\J{#1}} \J{x}=0",
+                   r"\newcommand{\A}[1]{\B{#1}} \newcommand{\B}[1]{\A{#1}} \A{x}=0",
+                   r"\newcommand{\A}[1]{#2} \A{x}=0", r"\newcommand{\A}[4]{#1} 1=1",
+                   r"\newcommand{\A}[0]{1} \newcommand{\A}[0]{2} 1=1",
+                   r"\newcommand{\A}[0]{\input{file}} \A=0", r"\newcommand{\A}[1]{#1} \A{x=0"]
+        for text in invalid:
+            with self.subTest(text=text), self.assertRaises(InputError):
+                parse_identity(text, DOMAIN)
+        with self.assertRaises(NeedsConditions):
+            parse_identity(r"\newcommand{\J}[1]{x*J_n(#1)} int(0,x,\J{t},t)=0", DOMAIN)
+        with self.assertRaises(InputError):
+            parse_identity(r"\newcommand{\A}[0]{x} " + "+".join([r"\A"] * 129) + "=0", DOMAIN)
+        with self.assertRaises(InputError):
+            parse_identity(r"\newcommand{\A}[1]{#1} " + r"\A{" * 10 + "x" + "}" * 10 + "=x", DOMAIN)
+
+    def test_forged_extra_conditions_and_rational_float_fields_are_rejected(self):
+        target = parse_identity("x=x", "x > 0")
+        for condition in [{"op": "axiom", "value": "False"}, {"op": "x_gt", "value": 1.0},
+                          {"op": "x_gt", "value": True}, {"op": "x_gt", "value": -1}]:
+            target["extra_conditions"] = [condition]
+            with self.subTest(condition=condition), self.assertRaises(InputError):
+                validate_request(target, require_proof=False)
+        target = parse_identity("x^(1/2)=sqrt(x)", "x > 0")
+        target["lhs"]["exponent"]["numerator"] = 1.0
+        with self.assertRaises(InputError):
+            validate_request(target, require_proof=False)
 
 
 @unittest.skipUnless(os.environ.get("BESSEL_RUN_LEAN_TESTS") == "1", "Enable real Lean integration checks.")
@@ -132,6 +201,74 @@ class ParsedLeanTests(unittest.TestCase):
                 self.assertIn(result["status"], {"unresolved", "refuted"}, result)
                 if result["status"] == "refuted":
                     self.assertEqual(result["certificate_kind"], "refutation")
+
+
+@unittest.skipUnless(os.environ.get("BESSEL_RUN_LEAN_TESTS") == "1", "Enable real Lean integration checks.")
+class ExtendedCalculusLeanTests(unittest.TestCase):
+    check = ParsedLeanTests.check
+    def test_rational_derivative_and_positive_interval_integral(self):
+        self.check("D(J_{1/2}(x))=1/(2*x)*J_{1/2}(x)-J_{3/2}(x)", "calculus", "x > 0")
+        self.check("D(J_{1/3}(x))=1/(3*x)*J_{1/3}(x)-J_{4/3}(x)", "calculus", "x > 0")
+        self.check("D(J_{1/2}(x))=(J_{-1/2}(x)-J_{3/2}(x))/2", "calculus", "x > 0")
+        self.check("int(1,x,(1/(2*t))*J_{1/2}(t)-J_{3/2}(t),t)=J_{1/2}(x)-J_{1/2}(1)", "calculus", "x > 0")
+
+    def test_weighted_half_order_and_singular_integrals(self):
+        self.check("int(1,x,sqrt(t)*J_{-1/2}(t),t)=sqrt(x)*J_{1/2}(x)-J_{1/2}(1)", "calculus", "x > 0")
+        self.check("int(0,x,t^(-1/2),t)=2*sqrt(x)", "calculus", "x > 0")
+
+    def test_real_powers_and_added_domain(self):
+        self.check("x^(1/2)*x^(1/2)=x", "power", "x > 0")
+        self.check("sqrt(x)^2=x", "power", "x > 0")
+        self.check("(x-1)/(x-1)=1", "field", "x > 1")
+        self.check("sqrt(x-1)^2=x-1", "power", "x > 1")
+
+    def test_composed_new_calculus_under_extra_condition(self):
+        self.check("D(J_{1/2}(x))+int(0,x,t^(-1/2),t)=1/(2*x)*J_{1/2}(x)-J_{3/2}(x)+2*sqrt(x)", "calculus", "x > 1")
+
+    def test_original_ai_symmetric_derivation_and_replay(self):
+        data = load_json(ROOT / "examples/rational-symmetric-steps.json")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            result = verify(data, path)
+            self.assertEqual(result["status"], "proved", result)
+            self.assertTrue(replay(path)["replayed"])
+
+    def test_macro_expansion_and_extra_condition_certificate_replay(self):
+        self.check(r"\newcommand{\J}[2]{J_{#1}(#2)} \J{n}{-x}=(-1)^n\J{n}{x}", "bessel")
+        data = parse_identity("(x-1)/(x-1)=1", "x > 1")
+        data["proof"] = {"mode": "direct", "recipe": "field"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            self.assertEqual(verify(data, path)["status"], "proved")
+            self.assertTrue(replay(path)["replayed"])
+            changed = copy.deepcopy(data)
+            changed["extra_conditions"][0]["value"] = 2
+            (path / "request.json").write_text(json.dumps(changed))
+            with self.assertRaises(InputError):
+                replay(path)
+
+    def test_wrong_new_calculus_coefficients_stay_unresolved_or_refuted(self):
+        for text in ["D(J_{1/2}(x))=1/(2*x)*J_{1/2}(x)+J_{3/2}(x)",
+                     "int(0,x,t^(-1/2),t)=sqrt(x)",
+                     "int(1,x,sqrt(t)*J_{-1/2}(t),t)=sqrt(x)*J_{1/2}(x)+J_{1/2}(1)",
+                     "sqrt(x-1)^2=x"]:
+            data = parse_identity(text, "x > 1")
+            data["proof"] = {"mode": "direct", "recipe": "power" if text.startswith("sqrt") else "calculus"}
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as directory:
+                result = verify(data, Path(directory))
+                self.assertIn(result["status"], {"unresolved", "refuted"}, result)
+                if result["status"] == "refuted":
+                    self.assertEqual(result["certificate_kind"], "refutation")
+
+    def test_refutation_witness_satisfies_extra_conditions(self):
+        data = parse_identity("J_n(x)+1=J_n(x)", "nは整数、x > 2")
+        data["proof"] = {"mode": "direct", "recipe": "ring"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            result = verify(data, path)
+            self.assertEqual(result["status"], "refuted", result)
+            self.assertIn("h 0 3 (by norm_num) (by norm_num)", (path / "certificate.lean").read_text())
+            self.assertTrue(replay(path)["replayed"])
 
 
 if __name__ == "__main__":

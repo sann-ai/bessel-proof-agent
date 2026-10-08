@@ -23,8 +23,9 @@ def obj(properties: dict) -> dict:
             "required": list(properties), "additionalProperties": False}
 
 
-def output_schema(route: str) -> dict:
+def output_schema(route: str, target: dict | None = None) -> dict:
     """Structured generation is separate from the verifier's strict parser."""
+    conditions = ["x > 0"] + [f"x > {c['value']}" for c in (target or {}).get("extra_conditions", [])]
     recipe = {"type": "string", "enum": list(RECIPES)}
     if route == "direct":
         return obj({"mode": {"type": "string", "enum": ["direct"]}, "recipe": recipe})
@@ -40,11 +41,13 @@ def output_schema(route: str) -> dict:
         obj({"op": {"const": "pow"}, "base": ref, "exponent": {"type": "integer", "minimum": 0, "maximum": 12}}),
         obj({"op": {"const": "int_cast"}, "arg": ref}),
         obj({"op": {"const": "rational"}, "numerator": {"type": "integer"}, "denominator": {"type": "integer", "minimum": 1}}),
+        obj({"op": {"const": "real_rpow"}, "base": ref, "exponent": ref}),
+        obj({"op": {"const": "sqrt"}, "arg": ref}),
         obj({"op": {"const": "deriv"}, "arg": ref}),
         obj({"op": {"const": "integral"}, "arg": ref, "lower": ref, "upper": ref}),
     ]}
     step = obj({"before": ref, "after": ref, "reason": {"type": "string"},
-                "conditions": {"type": "array", "items": {"type": "string", "enum": ["x > 0"]}},
+                "conditions": {"type": "array", "items": {"type": "string", "enum": conditions}},
                 "recipe": recipe})
     result = obj({"mode": {"type": "string", "enum": ["steps"]},
                   "steps": {"type": "array", "items": step, "minItems": 1, "maxItems": 12}})
@@ -55,20 +58,24 @@ def output_schema(route: str) -> dict:
 def make_prompt(target: dict, route: str, previous_error: str = "") -> str:
     # Only a validated expression tree, never a proposed theorem or Lean source, is sent.
     prompt = """Return one JSON proof plan matching the response schema. Do not use tools or edit files.
-The program, not you, fixes the theorem: for every integer n and real x > 0,
-the input lhs equals rhs, interpreted in Complex with Complex.besselJ.
+The program fixes the theorem: for every integer n and real x satisfying the
+exact input assumptions and extra_conditions, lhs equals rhs in Complex with
+Complex.besselJ. Do not add, remove, or strengthen conditions.
 Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplification,
 then commutative-ring normalization), ring (commutative-ring normalization),
 field (rational algebra using the verified nonzero denominator conditions),
 recurrence (the three-term Bessel recurrence and field algebra),
-calculus (verified Bessel derivative/integral formulas and field algebra).
+calculus (verified Bessel derivative/integral formulas and field algebra),
+power (positive-real rational powers and square-root identities).
 Only select a recipe listed in the response schema.
 Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
 add/sub/mul/div with two args, bessel_j with integer or fixed rational order and real arg,
 int_cast embeds an integer expression as a complex coefficient. pow has integer
 exponent 0..12; zpow has integer-expression exponent and a statically nonzero base.
 Division likewise requires a statically nonzero denominator, such as positive x.
-rational has numerator and positive denominator, in lowest terms. Noninteger
+rational has numerator and positive denominator, in lowest terms, and is allowed
+only in a Bessel order or real_rpow exponent. Write fractional coefficients as
+div of int expressions (for example 1/2 uses int 1 divided by int 2). Noninteger
 Bessel orders require a positive argument. deriv(arg) differentiates with respect
 to x; integral(arg,lower,upper) binds x inside arg. No arbitrary Lean source.
 Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
@@ -79,12 +86,23 @@ Derivative/integral order reflection follows the same (-1)^n factor.
 The integral of the derivative of integer-order J_n from a to b is J_n(b)-J_n(a).
 For positive x, D(J_n(x))=(n/x)*J_n(x)-J_{n+1}(x)
 =(J_{n-1}(x)-J_{n+1}(x))/2, and integral(t*J_0(t),0,x)=x*J_1(x).
+The adjacent-order derivative formula also holds for any fixed rational order a.
+For a rational-order derivative, use (a/x)*J_a(x)-J_(a+1)(x) directly: this is
+the supported calculus rewrite. When the target adds a derivative and an integral,
+rewrite the derivative in one step and the integral in a separate step.
+For x>0, integral(t^(-1/2),0,x)=2*sqrt(x), and the calculus recipe proves it.
+For positive endpoints l,u, the integral of (a/t)*J_a(t)-J_(a+1)(t) is J_a(u)-J_a(l).
+real_rpow(base, exponent) means Real.rpow on a positive real base, cast to Complex;
+its exponent is an int or reduced rational AST. sqrt(arg) is the positive real square root.
+extra_conditions entries {op: "x_gt", value: k} mean the explicit outer condition x > k.
+These outer conditions never apply to the bound variable inside an integral.
 The bessel recipe can normalize signs of Bessel order and argument.
 For steps, start exactly at input lhs, finish exactly at input rhs, preserve
 adjacent endpoints, and give each individual equality a valid recipe.
 Use at least two meaningful equality steps when the expression has multiple
 sign transformations. Give a concise Japanese reason for each step and only
-conditions [\"x > 0\"]. State conditions directly without unnecessary negations.
+conditions drawn from the exact target assumptions, such as [\"x > 0\", \"x > 1\"].
+State conditions directly without unnecessary negations.
 """
     prompt += f"Requested route: {route}\nFixed target JSON:\n{json.dumps(target, ensure_ascii=False, sort_keys=True)}\n"
     if previous_error:
@@ -104,7 +122,7 @@ def generate(target: dict, route: str, output_dir: Path, *, model: str | None = 
         raise ValueError("出力先が既に存在します。別のディレクトリを指定してください。")
     output_dir.mkdir(parents=True)
     (output_dir / "target.json").write_text(json.dumps(target, ensure_ascii=False, indent=2) + "\n")
-    schema = output_schema(route)
+    schema = output_schema(route, target)
     target_hash = hashlib.sha256(json.dumps(target, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     prior_error = ""
     result = {"status": "unresolved"}

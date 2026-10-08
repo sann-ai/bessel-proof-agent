@@ -40,3 +40,23 @@ Codex CLIを呼び出した候補です。段階経路では漸化式の適用�
 
 `numeric-candidates.json` は係数を3に変えた誤漸化式の数値診断です。
 この記録の状態は `unresolved` で、数値差のある点を候補として保存しています。
+
+
+## 有理数次数・特異積分・追加条件のAI生成例
+
+`calculus.target.json` は、追加条件x>1を明示した次の命題です。
+
+\[
+J'_{1/2}(x)+\int_0^x t^{-1/2}dt
+=\frac{J_{1/2}(x)}{2x}-J_{3/2}(x)+2\sqrt{x},\qquad x>1.
+\]
+
+`calculus-direct` と `calculus-steps` に実際のAI候補を保存しました。
+直接経路は隣接次数の微分と特異積分を適用します。段階経路は対称微分形、
+漸化式、特異積分の3段です。段階経路の初回検証は対応する証明操作が不足して
+未解決となり、既存数学補題への接続を追加して、同じ候補が証明済みになりました。
+この候補をCIの回帰例として保存しています。
+
+`numeric-calculus-candidates.json` は半整数の微分式の符号を変えた入力の診断です。
+元入力は `examples/numeric-derivative-candidate.target.json`、結果はunresolvedで、
+中心差分の手法・推定誤差・比較閾値も記録しています。

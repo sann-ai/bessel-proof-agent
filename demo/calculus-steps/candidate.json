@@ -1,0 +1,256 @@
+{
+  "mode": "steps",
+  "steps": [
+    {
+      "before": {
+        "op": "add",
+        "args": [
+          {
+            "op": "deriv",
+            "arg": {
+              "op": "bessel_j",
+              "order": {"op": "rational", "numerator": 1, "denominator": 2},
+              "arg": {"op": "var", "name": "x"}
+            }
+          },
+          {
+            "op": "integral",
+            "arg": {
+              "op": "real_rpow",
+              "base": {"op": "var", "name": "x"},
+              "exponent": {"op": "rational", "numerator": -1, "denominator": 2}
+            },
+            "lower": {"op": "int", "value": 0},
+            "upper": {"op": "var", "name": "x"}
+          }
+        ]
+      },
+      "after": {
+        "op": "add",
+        "args": [
+          {
+            "op": "div",
+            "args": [
+              {
+                "op": "sub",
+                "args": [
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": -1, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  },
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": 3, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  }
+                ]
+              },
+              {"op": "int", "value": 2}
+            ]
+          },
+          {
+            "op": "integral",
+            "arg": {
+              "op": "real_rpow",
+              "base": {"op": "var", "name": "x"},
+              "exponent": {"op": "rational", "numerator": -1, "denominator": 2}
+            },
+            "lower": {"op": "int", "value": 0},
+            "upper": {"op": "var", "name": "x"}
+          }
+        ]
+      },
+      "reason": "正の引数における次数1/2の隣接次数微分公式を適用する。",
+      "conditions": ["x > 0", "x > 1"],
+      "recipe": "calculus"
+    },
+    {
+      "before": {
+        "op": "add",
+        "args": [
+          {
+            "op": "div",
+            "args": [
+              {
+                "op": "sub",
+                "args": [
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": -1, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  },
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": 3, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  }
+                ]
+              },
+              {"op": "int", "value": 2}
+            ]
+          },
+          {
+            "op": "integral",
+            "arg": {
+              "op": "real_rpow",
+              "base": {"op": "var", "name": "x"},
+              "exponent": {"op": "rational", "numerator": -1, "denominator": 2}
+            },
+            "lower": {"op": "int", "value": 0},
+            "upper": {"op": "var", "name": "x"}
+          }
+        ]
+      },
+      "after": {
+        "op": "add",
+        "args": [
+          {
+            "op": "sub",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "op": "div",
+                    "args": [
+                      {"op": "int", "value": 1},
+                      {
+                        "op": "mul",
+                        "args": [
+                          {"op": "int", "value": 2},
+                          {"op": "var", "name": "x"}
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": 1, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  }
+                ]
+              },
+              {
+                "op": "bessel_j",
+                "order": {"op": "rational", "numerator": 3, "denominator": 2},
+                "arg": {"op": "var", "name": "x"}
+              }
+            ]
+          },
+          {
+            "op": "integral",
+            "arg": {
+              "op": "real_rpow",
+              "base": {"op": "var", "name": "x"},
+              "exponent": {"op": "rational", "numerator": -1, "denominator": 2}
+            },
+            "lower": {"op": "int", "value": 0},
+            "upper": {"op": "var", "name": "x"}
+          }
+        ]
+      },
+      "reason": "次数1/2の三項漸化式を用い、正の分母xと2xで係数を整理する。",
+      "conditions": ["x > 0", "x > 1"],
+      "recipe": "recurrence"
+    },
+    {
+      "before": {
+        "op": "add",
+        "args": [
+          {
+            "op": "sub",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "op": "div",
+                    "args": [
+                      {"op": "int", "value": 1},
+                      {
+                        "op": "mul",
+                        "args": [
+                          {"op": "int", "value": 2},
+                          {"op": "var", "name": "x"}
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": 1, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  }
+                ]
+              },
+              {
+                "op": "bessel_j",
+                "order": {"op": "rational", "numerator": 3, "denominator": 2},
+                "arg": {"op": "var", "name": "x"}
+              }
+            ]
+          },
+          {
+            "op": "integral",
+            "arg": {
+              "op": "real_rpow",
+              "base": {"op": "var", "name": "x"},
+              "exponent": {"op": "rational", "numerator": -1, "denominator": 2}
+            },
+            "lower": {"op": "int", "value": 0},
+            "upper": {"op": "var", "name": "x"}
+          }
+        ]
+      },
+      "after": {
+        "op": "add",
+        "args": [
+          {
+            "op": "sub",
+            "args": [
+              {
+                "op": "mul",
+                "args": [
+                  {
+                    "op": "div",
+                    "args": [
+                      {"op": "int", "value": 1},
+                      {
+                        "op": "mul",
+                        "args": [
+                          {"op": "int", "value": 2},
+                          {"op": "var", "name": "x"}
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "bessel_j",
+                    "order": {"op": "rational", "numerator": 1, "denominator": 2},
+                    "arg": {"op": "var", "name": "x"}
+                  }
+                ]
+              },
+              {
+                "op": "bessel_j",
+                "order": {"op": "rational", "numerator": 3, "denominator": 2},
+                "arg": {"op": "var", "name": "x"}
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "args": [
+              {"op": "int", "value": 2},
+              {"op": "sqrt", "arg": {"op": "var", "name": "x"}}
+            ]
+          }
+        ]
+      },
+      "reason": "正の上端xに対し、0からxまでの指数−1/2の積分公式を適用する。",
+      "conditions": ["x > 0", "x > 1"],
+      "recipe": "calculus"
+    }
+  ]
+}

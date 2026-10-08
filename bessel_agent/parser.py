@@ -14,6 +14,98 @@ from .core import InputError, NeedsConditions, validate_request
 
 
 TOKEN = re.compile(r"\s+|\\[A-Za-z]+|\\[,!;:]|[0-9]+|[A-Za-z]+|[_^{}()+\-*/=,;]")
+TEX_BUILTINS = {"frac", "dfrac", "int", "sqrt", "left", "right", "cdot", "times"}
+
+
+def _tex_group(text: str, index: int) -> tuple[str, int]:
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if index >= len(text) or text[index] != "{":
+        raise InputError("Macro names, bodies, and arguments must use braces.")
+    start = index + 1
+    depth = 1
+    index += 1
+    while index < len(text):
+        depth += (text[index] == "{") - (text[index] == "}")
+        if depth > 16:
+            raise InputError("A macro group exceeds the nesting limit.")
+        if depth == 0:
+            return text[start:index], index + 1
+        index += 1
+    raise InputError("Unclosed macro group.")
+
+
+def _expand_macros(text: str) -> str:
+    """Expand a bounded expression-only newcommand subset; never execute TeX."""
+    macros: dict[str, tuple[int, str]] = {}
+    text = text.lstrip()
+    while text.startswith(r"\newcommand"):
+        name_group, index = _tex_group(text, len(r"\newcommand"))
+        match = re.fullmatch(r"\\([A-Za-z]{1,16})", name_group)
+        if not match:
+            raise InputError("Use a macro name of 1 to 16 ASCII letters.")
+        name = match[1]
+        if name in TEX_BUILTINS or name in macros or name == "newcommand":
+            raise InputError("A macro cannot replace a built-in or an earlier definition.")
+        arity_match = re.match(r"\s*\[([0-3])\]", text[index:])
+        if not arity_match:
+            raise InputError("Declare an explicit macro arity from [0] to [3].")
+        arity = int(arity_match[1])
+        body, end = _tex_group(text, index + arity_match.end())
+        if len(body) > 512 or not re.fullmatch(r"[A-Za-z0-9_#{}()^+*/\-\\,\s]*", body):
+            raise InputError("A macro body must be a short mathematical expression.")
+        placeholders = re.findall(r"#([0-9]+)", body)
+        if any(not 1 <= int(value) <= arity for value in placeholders) or "#" in re.sub(r"#[0-9]+", "", body):
+            raise InputError("A macro placeholder must refer to one declared argument.")
+        macros[name] = arity, body
+        if len(macros) > 4:
+            raise InputError("At most four macros may be declared.")
+        text = text[end:].lstrip()
+    dependencies = {name: set(re.findall(r"\\([A-Za-z]+)", body)) - TEX_BUILTINS
+                    for name, (_, body) in macros.items()}
+
+    def acyclic(name: str, stack: set[str]) -> None:
+        if name in stack:
+            raise InputError("Recursive macros are unsupported.")
+        for dependency in dependencies[name]:
+            if dependency not in macros:
+                raise InputError("A macro body refers to an undeclared command.")
+            acyclic(dependency, stack | {name})
+
+    for name in macros:
+        acyclic(name, set())
+    count = [0]
+
+    def expand(source: str, depth: int = 0) -> str:
+        if depth > 8:
+            raise InputError("Macro expansion exceeds the depth limit.")
+        parts: list[str] = []
+        index = 0
+        length = 0
+        while index < len(source):
+            match = re.match(r"\\([A-Za-z]+)", source[index:])
+            if match and match[1] in macros:
+                count[0] += 1
+                if count[0] > 128:
+                    raise InputError("Macro expansion exceeds the invocation limit.")
+                arity, body = macros[match[1]]
+                index += match.end()
+                arguments = []
+                for _ in range(arity):
+                    argument, index = _tex_group(source, index)
+                    arguments.append(argument)
+                replaced = re.sub(r"#([1-3])", lambda m: arguments[int(m[1]) - 1], body)
+                part = " " + expand(replaced, depth + 1) + " "
+            else:
+                part = source[index:index + match.end()] if match else source[index]
+                index += match.end() if match else 1
+            parts.append(part)
+            length += len(part)
+            if length > 32768:
+                raise InputError("Expanded equation exceeds the length limit.")
+        return "".join(parts)
+
+    return expand(text)
 
 
 def _integer(value: int) -> dict[str, Any]:
@@ -92,8 +184,10 @@ def _convert(node: dict, sort: str = "complex", bound: str = "x") -> dict:
         if exponent["op"] == "int" and exponent["value"] >= 0:
             return {"op": "pow", "base": base, "exponent": exponent["value"]}
         if exponent["op"] == "rational":
-            raise NeedsConditions("Fractional powers need a branch/domain specification; the current grammar supports integer powers.")
+            return {"op": "real_rpow", "base": _convert(node["base"], "real", bound), "exponent": exponent}
         return {"op": "zpow", "base": base, "exponent": exponent}
+    if op == "sqrt":
+        return {"op": "sqrt", "arg": _convert(node["arg"], "real", bound)}
     if op == "deriv":
         if node.get("variable") not in {None, bound}:
             raise NeedsConditions("The derivative variable differs from the current binding; use an explicit supported scope.")
@@ -173,7 +267,7 @@ class _Parser:
 
     def _starts_atom(self) -> bool:
         token = self.peek()
-        return token is not None and (token.isdigit() or token in {"n", "x", "t", "J", "D", "Dx", "Dt", "int", "(", "{", r"\frac", r"\int"})
+        return token is not None and (token.isdigit() or token in {"n", "x", "t", "J", "D", "Dx", "Dt", "int", "sqrt", "(", "{", r"\frac", r"\int", r"\sqrt"})
 
     def unary(self) -> dict:
         if self.peek() == "+":
@@ -224,6 +318,9 @@ class _Parser:
         if token == r"\frac":
             self.take()
             return _binary("div", self.group(), self.group())
+        if token in {"sqrt", r"\sqrt"}:
+            self.take()
+            return {"op": "sqrt", "arg": self.group()}
         if token == "J":
             self.take()
             if self.peek() == "_":
@@ -274,23 +371,32 @@ class _Parser:
         raise InputError(f"Unsupported token {token!r}; use the documented equation grammar.")
 
 
-def _conditions(raw: str | list[str] | None, has_n: bool) -> None:
+def _conditions(raw: str | list[str] | None, has_n: bool) -> list[dict[str, Any]]:
     if isinstance(raw, list):
         if not all(isinstance(item, str) for item in raw):
             raise InputError("Conditions must be text.")
         raw = ",".join(raw)
     if not isinstance(raw, str) or not raw.strip():
         raise NeedsConditions("State x > 0 and, when n appears, n integer.")
+    raw = raw.replace("、", ",").replace("かつ", ",").replace("，", ",")
     raw = raw.replace(r"\mathbb{Z}", "Z").replace(r"\mathbb{R}", "R")
     raw = raw.replace(r"\in", "in").replace("∈", "in").replace("ℤ", "Z").replace("ℝ", "R")
     parts = {re.sub(r"\s+", "", part).strip("()") for part in raw.split(",")}
-    integer = {"ninteger", "ninZ", "n:Z"}
-    positive = {"x>0", "0<x", "xpositive"}
-    allowed = integer | positive | {"xinR", "xreal", "x:R"}
+    integer = {"ninteger", "ninZ", "n:Z", "nは整数", "n整数"}
+    positive = {"x>0", "0<x", "xpositive", "xは正", "xは正の実数"}
+    bounds: set[int] = set()
+    for part in tuple(parts):
+        match = re.fullmatch(r"x>([0-9]+)", part)
+        if match and 1 <= int(match[1]) <= 1000:
+            bounds.add(int(match[1]))
+            parts.remove(part)
+            parts.add("x>0")
+    allowed = integer | positive | {"xinR", "xreal", "x:R", "xは実数"}
     if parts - allowed:
         raise NeedsConditions("The supplied conditions require clarification; this input grammar uses n integer and x > 0.")
     if not parts & positive or (has_n and not parts & integer):
         raise NeedsConditions("State x > 0 and, when n appears, n integer.")
+    return [{"op": "x_gt", "value": value} for value in sorted(bounds)]
 
 
 def parse_identity(text: str, conditions: str | list[str] | None = None) -> dict[str, Any]:
@@ -303,10 +409,12 @@ def parse_identity(text: str, conditions: str | list[str] | None = None) -> dict
             raise NeedsConditions("Conditions were supplied twice; retain one explicit condition list.")
         text, conditions = separated
     try:
-        left, right = _Parser(text).equation()
-        _conditions(conditions, _contains_var(left, "n") or _contains_var(right, "n"))
+        left, right = _Parser(_expand_macros(text)).equation()
+        extra = _conditions(conditions, _contains_var(left, "n") or _contains_var(right, "n"))
         data = {"schema_version": 1, "assumptions": ["x > 0"],
                 "lhs": _convert(left), "rhs": _convert(right)}
+        if extra:
+            data["extra_conditions"] = extra
         validate_request(data, require_proof=False)
         return data
     except RecursionError as exc:

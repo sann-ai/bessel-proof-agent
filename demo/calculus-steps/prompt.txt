@@ -1,0 +1,44 @@
+Return one JSON proof plan matching the response schema. Do not use tools or edit files.
+The program fixes the theorem: for every integer n and real x satisfying the
+exact input assumptions and extra_conditions, lhs equals rhs in Complex with
+Complex.besselJ. Do not add, remove, or strengthen conditions.
+Allowed recipes: bessel (integer Bessel argument/order sign lemmas, simplification,
+then commutative-ring normalization), ring (commutative-ring normalization),
+field (rational algebra using the verified nonzero denominator conditions),
+recurrence (the three-term Bessel recurrence and field algebra),
+calculus (verified Bessel derivative/integral formulas and field algebra),
+power (positive-real rational powers and square-root identities).
+Only select a recipe listed in the response schema.
+Allowed syntax: int, var x (expressions), var n (integer orders/exponents), neg,
+add/sub/mul/div with two args, bessel_j with integer or fixed rational order and real arg,
+int_cast embeds an integer expression as a complex coefficient. pow has integer
+exponent 0..12; zpow has integer-expression exponent and a statically nonzero base.
+Division likewise requires a statically nonzero denominator, such as positive x.
+rational has numerator and positive denominator, in lowest terms. Noninteger
+Bessel orders require a positive argument. deriv(arg) differentiates with respect
+to x; integral(arg,lower,upper) binds x inside arg. No arbitrary Lean source.
+Known identities for integer n and real x: J_n(-x)=(-1)^n J_n(x),
+J_{-n}(x)=(-1)^n J_n(x), J_{-n}(-x)=J_n(x).
+For x>0: J_{n-1}(x)+J_{n+1}(x)=(2n/x)J_n(x).
+This recurrence also holds for a fixed rational order.
+Derivative/integral order reflection follows the same (-1)^n factor.
+The integral of the derivative of integer-order J_n from a to b is J_n(b)-J_n(a).
+For positive x, D(J_n(x))=(n/x)*J_n(x)-J_{n+1}(x)
+=(J_{n-1}(x)-J_{n+1}(x))/2, and integral(t*J_0(t),0,x)=x*J_1(x).
+The adjacent-order derivative formula also holds for any fixed rational order a.
+For x>0, integral(t^(-1/2),0,x)=2*sqrt(x), and the calculus recipe proves it.
+For positive endpoints l,u, the integral of (a/t)*J_a(t)-J_(a+1)(t) is J_a(u)-J_a(l).
+real_rpow(base, exponent) means Real.rpow on a positive real base, cast to Complex;
+its exponent is an int or reduced rational AST. sqrt(arg) is the positive real square root.
+extra_conditions entries {op: "x_gt", value: k} mean the explicit outer condition x > k.
+These outer conditions never apply to the bound variable inside an integral.
+The bessel recipe can normalize signs of Bessel order and argument.
+For steps, start exactly at input lhs, finish exactly at input rhs, preserve
+adjacent endpoints, and give each individual equality a valid recipe.
+Use at least two meaningful equality steps when the expression has multiple
+sign transformations. Give a concise Japanese reason for each step and only
+conditions drawn from the exact target assumptions, such as ["x > 0", "x > 1"].
+State conditions directly without unnecessary negations.
+Requested route: steps
+Fixed target JSON:
+{"assumptions": ["x > 0"], "extra_conditions": [{"op": "x_gt", "value": 1}], "lhs": {"args": [{"arg": {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"denominator": 2, "numerator": 1, "op": "rational"}}, "op": "deriv"}, {"arg": {"base": {"name": "x", "op": "var"}, "exponent": {"denominator": 2, "numerator": -1, "op": "rational"}, "op": "real_rpow"}, "lower": {"op": "int", "value": 0}, "op": "integral", "upper": {"name": "x", "op": "var"}}], "op": "add"}, "rhs": {"args": [{"args": [{"args": [{"args": [{"op": "int", "value": 1}, {"args": [{"op": "int", "value": 2}, {"name": "x", "op": "var"}], "op": "mul"}], "op": "div"}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"denominator": 2, "numerator": 1, "op": "rational"}}], "op": "mul"}, {"arg": {"name": "x", "op": "var"}, "op": "bessel_j", "order": {"denominator": 2, "numerator": 3, "op": "rational"}}], "op": "sub"}, {"args": [{"op": "int", "value": 2}, {"arg": {"name": "x", "op": "var"}, "op": "sqrt"}], "op": "mul"}], "op": "add"}, "schema_version": 1}

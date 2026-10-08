@@ -1,0 +1,49 @@
+{
+  "status": "unresolved",
+  "diagnostic": "counterexample_candidates",
+  "checked_samples": 3,
+  "excluded_by_conditions": 4,
+  "candidates": [
+    {
+      "n": -3,
+      "x": "2",
+      "lhs": "-0.36303974454670540709045763967079965178321178926694543825",
+      "rhs": "0.619547812827619282923303570263874526720132404545702621718322",
+      "absolute_difference": "0.982587557374324690013761209934674178503344193812648059968322",
+      "estimated_numerical_error": "6.120711561956317399521405698317215203678125000000E-14",
+      "comparison_tolerance": "1E-9"
+    },
+    {
+      "n": -3,
+      "x": "3",
+      "lhs": "-0.46688351794086247519916732942066314820314741603813498563889",
+      "rhs": "0.488552912233321067903835608413929819115865934248601798793235",
+      "absolute_difference": "0.955436430174183543103002937834592967319013350286736784432125",
+      "estimated_numerical_error": "1.38759843708841639404051218479177087900412338889000000000000E-13",
+      "comparison_tolerance": "1E-9"
+    },
+    {
+      "n": -2,
+      "x": "2",
+      "lhs": "-0.36303974454670540709045763967079965178321178926694543825",
+      "rhs": "0.619547812827619282923303570263874526720132404545702621718322",
+      "absolute_difference": "0.982587557374324690013761209934674178503344193812648059968322",
+      "estimated_numerical_error": "6.120711561956317399521405698317215203678125000000E-14",
+      "comparison_tolerance": "1E-9"
+    }
+  ],
+  "skipped_reasons": [],
+  "precision_digits": 60,
+  "relative_tolerance": "1e-25",
+  "calculus_relative_tolerance": "1e-9",
+  "max_series_terms": 500,
+  "max_quadrature_subdivisions": 512,
+  "max_evaluations_per_sample": 50000,
+  "methods": [
+    "bounded_bessel_series",
+    "central_difference_richardson"
+  ],
+  "largest_estimated_error": "1.38759843708841639404051218479177087900412338889000000000000E-13",
+  "error_estimate_kind": "empirical_refinement_difference",
+  "explanation": "有限標本の数値診断です。微分は中心差分、積分は開区間求積の細分差から誤差を推定します。打切り・収束失敗は記録し、反証の確定には元命題の否定をLeanで検査します。"
+}

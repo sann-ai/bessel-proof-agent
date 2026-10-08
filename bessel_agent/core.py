@@ -22,6 +22,7 @@ ASSUMPTIONS = ["x > 0"]
 RECIPES = {
     "bessel": "(try simp only [BesselProofAgent.argument_neg, BesselProofAgent.order_neg, ← mul_assoc, BesselProofAgent.sign_cancel, BesselProofAgent.sign_mul_self, one_mul, neg_neg]) <;> ring",
     "ring": "ring",
+    "power": "norm_num",
     "field": "have hxC : (x : ℂ) ≠ 0 := by exact_mod_cast (ne_of_gt hx)\nfield_simp [hxC] <;> ring",
     "recurrence": "have hrec := BesselProofAgent.recurrence n x hx\nfirst\n| linear_combination hrec\n| linear_combination -hrec\n| (try simp only [hrec]) <;> ring",
     "calculus": "have hxC : (x : ℂ) ≠ 0 := by exact_mod_cast (ne_of_gt hx)\nsolve\n| (try simp only [BesselProofAgent.deriv_order_neg, BesselProofAgent.integral_order_neg_raw, BesselProofAgent.integral_deriv_J, BesselProofAgent.deriv_J_symmetric n x hx, BesselProofAgent.integral_mul_J_zero x hx]) <;> (first | ring | (field_simp [hxC] <;> ring))\n| (try simp only [BesselProofAgent.deriv_order_neg, BesselProofAgent.integral_order_neg_raw, BesselProofAgent.integral_deriv_J, BesselProofAgent.deriv_J n x hx, BesselProofAgent.integral_mul_J_zero x hx]) <;> (first | ring | (field_simp [hxC] <;> ring))",
@@ -57,33 +58,68 @@ def _constant(node: dict[str, Any]) -> Fraction | None:
     return None
 
 
-def _positive(node: dict[str, Any]) -> bool:
+def _affine(node: dict[str, Any]) -> tuple[Fraction, Fraction] | None:
+    value = _constant(node)
+    if value is not None:
+        return Fraction(0), value
+    op = node["op"]
+    if op == "var" and node["name"] == "x":
+        return Fraction(1), Fraction(0)
+    if op == "neg":
+        value = _affine(node["arg"])
+        return (-value[0], -value[1]) if value is not None else None
+    if op in {"add", "sub", "mul", "div"}:
+        left, right = (_affine(arg) for arg in node["args"])
+        if left is None or right is None:
+            return None
+        a, b = left
+        c, d = right
+        if op == "add":
+            return a + c, b + d
+        if op == "sub":
+            return a - c, b - d
+        if op == "mul" and a * c == 0:
+            return a * d + b * c, b * d
+        if op == "div" and c == 0 and d != 0:
+            return a / d, b / d
+    return None
+
+
+def _positive(node: dict[str, Any], lower_bound: int = 0) -> bool:
     value = _constant(node)
     if value is not None:
         return value > 0
+    affine = _affine(node)
+    if affine is not None:
+        a, b = affine
+        return (a > 0 and a * lower_bound + b >= 0) or (a == 0 and b > 0)
     op = node["op"]
     if op == "var":
         return node["name"] == "x"
     if op in {"add", "mul", "div"}:
-        return all(_positive(arg) for arg in node["args"])
-    if op in {"pow", "zpow"}:
-        return _positive(node["base"])
+        return all(_positive(arg, lower_bound) for arg in node["args"])
+    if op in {"pow", "zpow", "real_rpow"}:
+        return _positive(node["base"], lower_bound)
+    if op == "sqrt":
+        return _positive(node["arg"], lower_bound)
     return False
 
 
-def _nonzero(node: dict[str, Any]) -> bool:
+def _nonzero(node: dict[str, Any], lower_bound: int = 0) -> bool:
     value = _constant(node)
     if value is not None:
         return value != 0
-    if _positive(node):
+    if _positive(node, lower_bound) or _positive({"op": "neg", "arg": node}, lower_bound):
         return True
     op = node["op"]
     if op == "neg":
-        return _nonzero(node["arg"])
+        return _nonzero(node["arg"], lower_bound)
     if op in {"mul", "div"}:
-        return all(_nonzero(arg) for arg in node["args"])
-    if op in {"pow", "zpow"}:
-        return _nonzero(node["base"]) or (op == "pow" and node["exponent"] == 0)
+        return all(_nonzero(arg, lower_bound) for arg in node["args"])
+    if op in {"pow", "zpow", "real_rpow"}:
+        return _nonzero(node["base"], lower_bound) or (op == "pow" and node["exponent"] == 0)
+    if op == "sqrt":
+        return _positive(node["arg"], lower_bound)
     return False
 
 
@@ -117,7 +153,36 @@ def _keys(value: Any, required: set[str], optional: set[str] | None = None) -> N
         raise InputError(f"Expected keys {sorted(required)}; got {sorted(actual)}.")
 
 
-def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None) -> None:
+def _fixed_exponent(node: Any) -> None:
+    if isinstance(node, dict) and node.get("op") == "int":
+        _expr(node, "int")
+        return
+    _keys(node, {"op", "numerator", "denominator"})
+    if node["op"] != "rational":
+        raise InputError("A real power requires a fixed integer or rational exponent.")
+    p, q = node["numerator"], node["denominator"]
+    if type(p) is not int or type(q) is not int or abs(p) > 1000 or not 2 <= q <= 1000:
+        raise InputError("Use exact integer fields for a fixed rational exponent.")
+    reduced = Fraction(p, q)
+    if reduced.numerator != p or reduced.denominator != q:
+        raise InputError("A rational exponent must be reduced and noninteger.")
+
+
+def _singular_half_integral(node: dict[str, Any]) -> bool:
+    return (node["lower"] == {"op": "int", "value": 0}
+            and node["upper"] == {"op": "var", "name": "x"}
+            and node["arg"] == {"op": "real_rpow", "base": {"op": "var", "name": "x"},
+                                "exponent": {"op": "rational", "numerator": -1, "denominator": 2}})
+
+
+def _has_integral(node: Any) -> bool:
+    if isinstance(node, dict):
+        return node.get("op") == "integral" or any(_has_integral(value) for value in node.values())
+    return isinstance(node, list) and any(_has_integral(value) for value in node)
+
+
+def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None,
+          lower_bound: int = 0) -> None:
     if budget is None:
         budget = [500]
     budget[0] -= 1
@@ -137,32 +202,32 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None)
             raise InputError(f"Expected variable {expected} in a {sort} expression.")
     elif op == "neg":
         _keys(node, {"op", "arg"})
-        _expr(node["arg"], sort, depth + 1, budget)
+        _expr(node["arg"], sort, depth + 1, budget, lower_bound)
     elif op in {"add", "sub", "mul"}:
         _keys(node, {"op", "args"})
         if not isinstance(node["args"], list) or len(node["args"]) != 2:
             raise InputError("Binary operations require exactly two arguments.")
         for arg in node["args"]:
-            _expr(arg, sort, depth + 1, budget)
+            _expr(arg, sort, depth + 1, budget, lower_bound)
     elif op == "int_cast" and sort in {"real", "complex"}:
         _keys(node, {"op", "arg"})
-        _expr(node["arg"], "int", depth + 1, budget)
+        _expr(node["arg"], "int", depth + 1, budget, lower_bound)
     elif op == "div" and sort in {"real", "complex"}:
         _keys(node, {"op", "args"})
         if not isinstance(node["args"], list) or len(node["args"]) != 2:
             raise InputError("Division requires a numerator and denominator.")
         for arg in node["args"]:
-            _expr(arg, sort, depth + 1, budget)
-        if not _nonzero(node["args"][1]):
+            _expr(arg, sort, depth + 1, budget, lower_bound)
+        if not _nonzero(node["args"][1], lower_bound):
             raise NeedsConditions("The denominator needs a nonzero condition; supported denominators follow from x > 0 and nonzero constants.")
     elif op == "pow":
         _keys(node, {"op", "base", "exponent"})
-        _expr(node["base"], sort, depth + 1, budget)
+        _expr(node["base"], sort, depth + 1, budget, lower_bound)
         if type(node["exponent"]) is not int or not 0 <= node["exponent"] <= 12:
             raise InputError("Natural powers support integer exponents from 0 to 12.")
     elif op == "bessel_j" and sort == "complex":
         _keys(node, {"op", "order", "arg"})
-        _expr(node["arg"], "real", depth + 1, budget)
+        _expr(node["arg"], "real", depth + 1, budget, lower_bound)
         if isinstance(node["order"], dict) and node["order"].get("op") == "rational":
             order = node["order"]
             _keys(order, {"op", "numerator", "denominator"})
@@ -172,25 +237,41 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None)
             reduced = Fraction(p, q)
             if reduced.numerator != p or reduced.denominator != q:
                 raise InputError("Rational orders must be reduced and noninteger.")
-            if not _positive(node["arg"]):
+            if not _positive(node["arg"], lower_bound):
                 raise NeedsConditions("Noninteger orders currently require an argument proven positive from x > 0.")
         else:
-            _expr(node["order"], "int", depth + 1, budget)
+            _expr(node["order"], "int", depth + 1, budget, lower_bound)
     elif op == "zpow" and sort in {"real", "complex"}:
         _keys(node, {"op", "base", "exponent"})
-        _expr(node["base"], sort, depth + 1, budget)
-        _expr(node["exponent"], "int", depth + 1, budget)
-        if not _nonzero(node["base"]):
+        _expr(node["base"], sort, depth + 1, budget, lower_bound)
+        _expr(node["exponent"], "int", depth + 1, budget, lower_bound)
+        if not _nonzero(node["base"], lower_bound):
             raise NeedsConditions("An integer power requires a nonzero base under the fixed assumptions.")
+    elif op in {"real_rpow", "sqrt"} and sort in {"real", "complex"}:
+        _keys(node, {"op", "arg"} if op == "sqrt" else {"op", "base", "exponent"})
+        base = node["arg"] if op == "sqrt" else node["base"]
+        _expr(base, "real", depth + 1, budget, lower_bound)
+        if op == "real_rpow":
+            _fixed_exponent(node["exponent"])
+        if not _positive(base, lower_bound):
+            raise NeedsConditions("State conditions ensuring a strictly positive real base for the real power or square root.")
     elif op == "deriv" and sort == "complex":
         _keys(node, {"op", "arg"})
-        _expr(node["arg"], sort, depth + 1, budget)
+        _expr(node["arg"], sort, depth + 1, budget, lower_bound)
     elif op == "integral" and sort == "complex":
         _keys(node, {"op", "arg", "lower", "upper"})
-        _expr(node["arg"], sort, depth + 1, budget)
         for name in ("lower", "upper"):
-            _expr(node[name], "real", depth + 1, budget)
-        if not _entire_integrand(node["arg"]):
+            _expr(node[name], "real", depth + 1, budget, lower_bound)
+        # x inside the integrand is its own bound variable; outer x > k cannot leak in.
+        _expr(node["arg"], sort, depth + 1, budget, 0)
+        positive_interval = all(_positive(node[name], lower_bound) for name in ("lower", "upper"))
+        if _has_integral(node["arg"]):
+            raise NeedsConditions("Nested integrals need an explicit supported binding and regularity check.")
+        if not (_entire_integrand(node["arg"]) or positive_interval or _singular_half_integral(node)):
+            if (node["lower"] == {"op": "int", "value": 0}
+                    and node["upper"] == {"op": "var", "name": "x"}
+                    and node["arg"] == {"op": "div", "args": [{"op": "int", "value": 1}, {"op": "var", "name": "x"}]}):
+                raise NeedsConditions("x > 0 の区間 [0,x] における 1/t の非可積分性をLean補題 not_intervalIntegrable_inv で確認しています。通常の積分として扱う範囲を指定してください。")
             raise NeedsConditions("Integral regularity needs checking: the supported integrands use integer-order J, polynomials, derivatives, and constant nonzero denominators.")
     else:
         raise InputError(f"Unsupported operation {op!r} in a {sort} expression.")
@@ -199,15 +280,17 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None)
 def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
     required = {"schema_version", "assumptions", "lhs", "rhs"}
     _keys(data, required | ({"proof"} if require_proof else set()),
-          set() if require_proof else {"proof"})
+          {"extra_conditions"} if require_proof else {"proof", "extra_conditions"})
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise InputError("schema_version must be 1.")
     if data["assumptions"] == []:
         raise NeedsConditions("State the supported assumption explicitly: x > 0.")
     if data["assumptions"] != ASSUMPTIONS:
         raise InputError('The only supported assumptions are ["x > 0"].')
+    extra_bounds = condition_bounds(data)
+    lower_bound = max([0] + extra_bounds)
     for name in ("lhs", "rhs"):
-        _expr(data[name], "complex")
+        _expr(data[name], "complex", lower_bound=lower_bound)
     if "proof" not in data:
         return data
     proof = data["proof"]
@@ -225,13 +308,15 @@ def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
         for step in steps:
             _keys(step, {"before", "after", "reason", "conditions", "recipe"})
             for name in ("before", "after"):
-                _expr(step[name], "complex")
+                _expr(step[name], "complex", lower_bound=lower_bound)
             if step["before"] != previous:
                 raise InputError("Step endpoints must form one exact AST chain.")
             previous = step["after"]
             if not isinstance(step["reason"], str) or not 1 <= len(step["reason"]) <= 2000:
                 raise InputError("Each proposed reason must be 1 to 2000 characters.")
-            if step["conditions"] not in ([], ASSUMPTIONS):
+            available = set(ASSUMPTIONS + [f"x > {value}" for value in extra_bounds])
+            if (not isinstance(step["conditions"], list)
+                    or any(not isinstance(item, str) or item not in available for item in step["conditions"])):
                 raise InputError("Steps can only use the fixed theorem assumptions.")
             _recipe(step["recipe"])
         if previous != data["rhs"]:
@@ -239,6 +324,22 @@ def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
     else:
         raise InputError("proof.mode must be direct or steps.")
     return data
+
+
+def condition_bounds(data: dict[str, Any]) -> list[int]:
+    conditions = data.get("extra_conditions", [])
+    if not isinstance(conditions, list) or len(conditions) > 4:
+        raise InputError("Use at most four structured extra conditions.")
+    bounds: list[int] = []
+    for condition in conditions:
+        _keys(condition, {"op", "value"})
+        value = condition["value"]
+        if condition["op"] != "x_gt" or type(value) is not int or not 1 <= value <= 1000:
+            raise NeedsConditions("Supported extra conditions have the form x > k for integer k from 1 to 1000.")
+        if value in bounds:
+            raise InputError("Extra conditions must be distinct.")
+        bounds.append(value)
+    return bounds
 
 
 def _recipe(recipe: Any) -> None:
@@ -250,6 +351,8 @@ def lean_expr(node: dict[str, Any], sort: str = "complex") -> str:
     op = node["op"]
     if op == "int":
         return f"({node['value']} : { {'int': 'ℤ', 'real': 'ℝ', 'complex': 'ℂ'}[sort]})"
+    if op == "rational":
+        return f"(({node['numerator']} : ℝ) / ({node['denominator']} : ℝ))"
     if op == "var":
         return "(x : ℂ)" if sort == "complex" else node["name"]
     if op == "neg":
@@ -270,6 +373,10 @@ def lean_expr(node: dict[str, Any], sort: str = "complex") -> str:
         return f"(intervalIntegral (fun (x : ℝ) => {lean_expr(node['arg'])}) {lean_expr(node['lower'], 'real')} {lean_expr(node['upper'], 'real')} MeasureTheory.volume)"
     if op == "pow":
         return f"({lean_expr(node['base'], sort)} ^ ({node['exponent']} : ℕ))"
+    if op in {"real_rpow", "sqrt"}:
+        value = (f"(Real.sqrt {lean_expr(node['arg'], 'real')})" if op == "sqrt" else
+                 f"(Real.rpow {lean_expr(node['base'], 'real')} {lean_expr(node['exponent'], 'real')})")
+        return f"({value} : ℂ)" if sort == "complex" else value
     return f"({lean_expr(node['base'], sort)} ^ {lean_expr(node['exponent'], 'int')})"
 
 
@@ -296,37 +403,90 @@ def display_expr(node: dict[str, Any]) -> str:
         return f"integral_{{{display_expr(node['lower'])}}}^{{{display_expr(node['upper'])}}}({display_expr(node['arg'])})"
     if op == "pow":
         return f"({display_expr(node['base'])})^({node['exponent']})"
+    if op == "sqrt":
+        return f"sqrt({display_expr(node['arg'])})"
+    if op == "real_rpow":
+        return f"real_power({display_expr(node['base'])}, {display_expr(node['exponent'])})"
     return f"({display_expr(node['base'])})^({display_expr(node['exponent'])})"
 
 
 def theorem_statement(data: dict[str, Any]) -> str:
-    return f"∀ (n : ℤ) (x : ℝ), 0 < x → {lean_expr(data['lhs'])} = {lean_expr(data['rhs'])}"
+    extra = "".join(f"{value} < x → " for value in condition_bounds(data))
+    return f"∀ (n : ℤ) (x : ℝ), 0 < x → {extra}{lean_expr(data['lhs'])} = {lean_expr(data['rhs'])}"
 
 
-def _recipe_text(recipe: str, left: dict, right: dict) -> str:
-    if recipe != "recurrence":
-        return RECIPES[recipe]
+def _recipe_text(recipe: str, left: dict, right: dict, bounds: list[int] | None = None) -> str:
     orders: set[tuple[int, int]] = set()
+    power_bases: list[dict] = []
+    denominators: list[dict] = []
+    has_new_calculus = False
 
-    def collect(node: Any) -> None:
+    def collect(node: Any, inside_binding: bool = False) -> None:
+        nonlocal has_new_calculus
         if isinstance(node, dict):
-            if node.get("op") == "rational":
-                orders.add((node["numerator"], node["denominator"]))
+            if node.get("op") == "bessel_j" and node["order"].get("op") == "rational":
+                order = node["order"]
+                orders.add((order["numerator"], order["denominator"]))
+                has_new_calculus = True
+            if node.get("op") in {"real_rpow", "sqrt"}:
+                has_new_calculus = True
+                base = node["arg"] if node["op"] == "sqrt" else node["base"]
+                if not inside_binding and base not in power_bases:
+                    power_bases.append(base)
+            if node.get("op") == "div" and not inside_binding and node["args"][1] not in denominators:
+                denominators.append(node["args"][1])
+            inside_binding = inside_binding or node.get("op") in {"deriv", "integral"}
             for value in node.values():
-                collect(value)
+                collect(value, inside_binding)
         elif isinstance(node, list):
             for value in node:
-                collect(value)
+                collect(value, inside_binding)
 
     collect(left)
     collect(right)
+    if recipe == "power":
+        lines = []
+        for index, base in enumerate(power_bases):
+            lines += [f"have hpositive_{index} : (0 : ℝ) < {lean_expr(base, 'real')} := by first | positivity | linarith"]
+        rules = ["Real.rpow_eq_pow", "Real.sqrt_eq_rpow", "pow_two"] + [f"← Real.rpow_add hpositive_{index}" for index in range(len(power_bases))]
+        lines += ["(try norm_cast) <;> (simp only [" + ", ".join(rules) + "] <;> norm_num)"]
+        return "\n".join(lines)
+    if recipe == "field" and bounds:
+        lines = []
+        for index, denominator in enumerate(denominators):
+            lines += [f"have hdenominator_{index} : {lean_expr(denominator)} ≠ 0 := by",
+                      f"  have hreal : {lean_expr(denominator, 'real')} ≠ 0 := by",
+                      "    first | positivity | (apply ne_of_gt; linarith) | (apply ne_of_lt; linarith)",
+                      "  exact_mod_cast hreal"]
+        rules = ", ".join(f"hdenominator_{index}" for index in range(len(denominators)))
+        lines += [f"field_simp [{rules}] <;> ring"]
+        return "\n".join(lines)
+    if recipe == "calculus" and has_new_calculus:
+        lines = ["have hxC : (x : ℂ) ≠ 0 := by exact_mod_cast (ne_of_gt hx)",
+                 "have hintegrable := BesselProofAgent.intervalIntegrable_inv_sqrt_complex x",
+                 "have hsingular := BesselProofAgent.integral_inv_sqrt x hx",
+                 "have hweighted := BesselProofAgent.integral_sqrt_mul_bessel_neg_half x hx"]
+        names = ["hsingular", "hweighted"]
+        for index, (p, q) in enumerate(sorted(orders)):
+            lines += [f"have hderivative_{index} := BesselProofAgent.deriv_bessel_rational ({p} : ℤ) ({q} : ℕ) (by norm_num) x hx",
+                      f"have hsymmetric_{index} := BesselProofAgent.deriv_bessel_real_symmetric (({p} : ℂ) / ({q} : ℂ)) x hx",
+                      f"have hintegral_{index} := BesselProofAgent.integral_deriv_bessel_real (({p} : ℂ) / ({q} : ℂ)) x hx"]
+            names += [f"hderivative_{index}", f"hintegral_{index}"]
+        symmetric_names = [name.replace("hderivative_", "hsymmetric_") for name in names]
+        lines += ["norm_num [div_div] at " + " ".join(dict.fromkeys(names + symmetric_names)) + " ⊢", "solve",
+                  "| (try simp only [" + ", ".join(names) + "]) <;> (solve | ring | (field_simp [hxC] <;> ring))",
+                  "| (try simp only [" + ", ".join(symmetric_names) + "]) <;> (solve | ring | (field_simp [hxC] <;> ring))"]
+        return "\n".join(lines)
+    if recipe != "recurrence":
+        return RECIPES[recipe]
     if not orders:
         return RECIPES[recipe]
     lines = ["have hxC : (x : ℂ) ≠ 0 := by exact_mod_cast (ne_of_gt hx)", "solve"]
     for p, q in sorted(orders):
         lines += [f"| have hrec := BesselProofAgent.bessel_recurrence (({p} : ℂ) / ({q} : ℂ)) (x : ℂ) hxC",
                   "  norm_num at hrec ⊢", "  solve", "  | linear_combination hrec",
-                  "  | linear_combination -hrec", "  | (try simp only [hrec]) <;> ring"]
+                  "  | linear_combination -hrec", "  | linear_combination (1 / 2 : ℂ) * hrec",
+                  "  | linear_combination -(1 / 2 : ℂ) * hrec", "  | (try simp only [hrec]) <;> ring"]
     return "\n".join(lines)
 
 
@@ -336,27 +496,31 @@ def render_lean(data: dict[str, Any], kind: str = "proof") -> str:
         raise InputError("Unknown certificate kind.")
     lines = ["import BesselProofAgent", "", "namespace BesselAgentCandidate", ""]
     statement = theorem_statement(data)
+    bounds = condition_bounds(data)
+    hypothesis_names = "".join(f" hcondition_{index + 1}" for index in range(len(bounds)))
+    hypothesis_binders = "".join(f" (hcondition_{index + 1} : {value} < x)" for index, value in enumerate(bounds))
     if kind == "refutation":
+        witness = max([0] + bounds) + 1
         lines += [f"theorem target : ¬ ({statement}) := by", "  intro h",
-                  "  have hbad := h 0 1 (by norm_num)", "  first",
+                  f"  have hbad := h 0 {witness} (by norm_num)" + " (by norm_num)" * len(bounds), "  first",
                   "  | have bad : (0 : ℂ) = 1 := by linear_combination hbad",
                   "    norm_num at bad",
                   "  | have bad : (0 : ℂ) = 1 := by linear_combination -hbad",
                   "    norm_num at bad", "  | norm_num at hbad"]
     elif data["proof"]["mode"] == "direct":
-        lines += [f"theorem target : {statement} := by", "  intro n x hx"]
-        lines += ["  " + line for line in _recipe_text(data["proof"]["recipe"], data["lhs"], data["rhs"]).splitlines()]
+        lines += [f"theorem target : {statement} := by", "  intro n x hx" + hypothesis_names]
+        lines += ["  " + line for line in _recipe_text(data["proof"]["recipe"], data["lhs"], data["rhs"], bounds).splitlines()]
     else:
         steps = data["proof"]["steps"]
         for index, step in enumerate(steps):
-            lines += [f"theorem step_{index + 1} (n : ℤ) (x : ℝ) (hx : 0 < x) :",
+            lines += [f"theorem step_{index + 1} (n : ℤ) (x : ℝ) (hx : 0 < x){hypothesis_binders} :",
                       f"    {lean_expr(step['before'])} = {lean_expr(step['after'])} := by"]
-            lines += ["  " + line for line in _recipe_text(step["recipe"], step["before"], step["after"]).splitlines()]
+            lines += ["  " + line for line in _recipe_text(step["recipe"], step["before"], step["after"], bounds).splitlines()]
             lines += [""]
-        lines += [f"theorem target : {statement} := by", "  intro n x hx", "  calc"]
+        lines += [f"theorem target : {statement} := by", "  intro n x hx" + hypothesis_names, "  calc"]
         for index, step in enumerate(steps):
             left = lean_expr(step["before"]) if index == 0 else "_"
-            lines += [f"    {left} = {lean_expr(step['after'])} := step_{index + 1} n x hx"]
+            lines += [f"    {left} = {lean_expr(step['after'])} := step_{index + 1} n x hx{hypothesis_names}"]
     lines += ["", "end BesselAgentCandidate", "",
               '#eval IO.println "BESSEL_AUDIT_BEGIN"',
               f"#print axioms {THEOREM}",
@@ -425,11 +589,14 @@ def _report(data: dict[str, Any], result: dict[str, Any]) -> str:
     lines = [f"# {states[result['status']]}", "",
              "対象：すべての整数 n と正の実数 x に対する次の等式。", "",
              f"`{display_expr(data['lhs'])} = {display_expr(data['rhs'])}`", ""]
+    if condition_bounds(data):
+        lines += ["追加条件：" + "、".join(f"x > {value}" for value in condition_bounds(data)) + "。", ""]
     if result["status"] == "proved":
         lines += ["固定した命題の証明と依存公理の監査が完了しました。", ""]
         if data["proof"]["mode"] == "steps":
             for index, step in enumerate(data["proof"]["steps"], 1):
                 method = {"bessel": "整数次数の符号関係と代数式の整理", "ring": "代数式の整理",
+                          "power": "正の実底の有理数冪と平方根の公式",
                           "field": "非零条件を用いた分数式の整理", "recurrence": "三項漸化式と代数式の整理",
                           "calculus": "微分・積分の公式と代数式の整理"}[step["recipe"]]
                 lines += [f"{index}. `{display_expr(step['before'])} = {display_expr(step['after'])}`",
@@ -437,7 +604,8 @@ def _report(data: dict[str, Any], result: dict[str, Any]) -> str:
             lines += ["以上の等式を連結し、元の左辺から右辺への証明を検査しました。", "",
                       "AIが提案した自由記述の理由は request.json に保存しています。上の説明は検査した構造化手順から生成しています。", ""]
     elif result["status"] == "refuted":
-        lines += ["n = 0、x = 1 を用いて、元の全称命題の否定をLeanで証明しました。", ""]
+        witness = max([0] + condition_bounds(data)) + 1
+        lines += [f"n = 0、x = {witness} を用いて、元の全称命題の否定をLeanで証明しました。", ""]
     else:
         lines += ["今回の手順と制限時間で証明・反証を確定できませんでした。", "",
                   "詳細は result.json の各試行に記録しています。", ""]
