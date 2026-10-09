@@ -315,6 +315,9 @@ def _expr(node: Any, sort: str, depth: int = 0, budget: list[int] | None = None,
 
 
 def validate_request(data: Any, require_proof: bool = True) -> dict[str, Any]:
+    from .real_bessel import is_extended, validate
+    if is_extended(data):
+        return validate(data, require_proof)
     required = {"schema_version", "assumptions", "lhs", "rhs"}
     _keys(data, required | ({"proof"} if require_proof else set()),
           {"extra_conditions"} if require_proof else {"proof", "extra_conditions"})
@@ -415,6 +418,9 @@ def condition_holds(condition: dict[str, Any], n: Any, x: Any) -> bool:
 
 
 def condition_labels(data: dict[str, Any]) -> list[str]:
+    from .real_bessel import is_extended, labels
+    if is_extended(data):
+        return labels(data)
     symbols = {"gt": ">", "ge": ">=", "lt": "<", "le": "<=", "eq": "=", "ne": "!="}
     return ASSUMPTIONS + [f"{atom['variable']} {symbols[atom['relation']]} "
                           f"{Fraction(atom['value']['numerator'], atom['value']['denominator'])}"
@@ -544,6 +550,9 @@ def lean_expr(node: dict[str, Any], sort: str = "complex") -> str:
 
 def display_expr(node: dict[str, Any]) -> str:
     op = node["op"]
+    if op in {"bessel_y", "bessel_cross"}:
+        from .real_bessel import display
+        return display(node)
     if op == "int":
         return str(node["value"])
     if op == "var":
@@ -679,6 +688,8 @@ def _recipe_body(recipe: str, left: dict, right: dict, bounds: list[dict] | None
 
 def render_lean(data: dict[str, Any], kind: str = "proof") -> str:
     validate_request(data)
+    if data["schema_version"] == 2:
+        raise InputError("Version 2 has conditional diagnostics; a full Bessel theorem cannot be rendered.")
     if kind not in {"proof", "refutation"}:
         raise InputError("Unknown certificate kind.")
     lines = ["import BesselProofAgent", "", "namespace BesselAgentCandidate", ""]
@@ -827,6 +838,9 @@ def verify(data: Any, output_dir: Path, timeout: float = 60) -> dict[str, Any]:
         result = {"status": "unresolved", "reason": "invalid_input", "detail": str(exc)}
         _save_json(output_dir / "result.json", result)
         return result
+    if data["schema_version"] == 2:
+        from .real_bessel import verify_diagnostic
+        return verify_diagnostic(data, output_dir, timeout)
     result: dict[str, Any] = {"status": "unresolved", "statement": theorem_statement(data),
                               "environment": environment(), "attempts": []}
     for kind in ("proof", "refutation"):
@@ -853,6 +867,9 @@ def replay(output_dir: Path, timeout: float = 60) -> dict[str, Any]:
     data = load_json(output_dir / "request.json")
     result = load_json(output_dir / "result.json")
     validate_request(data)
+    if data["schema_version"] == 2:
+        from .real_bessel import replay_diagnostic
+        return replay_diagnostic(data, result, output_dir, timeout)
     if result.get("status") not in {"proved", "refuted"}:
         raise InputError("This run has no accepted certificate to replay.")
     kind = "proof" if result["status"] == "proved" else "refutation"

@@ -89,8 +89,9 @@ def main() -> int:
             if args.output:
                 with args.output.open("x", encoding="utf-8") as stream:
                     stream.write(encoded)
+            prefix = "n は整数、x は実数、" if target["schema_version"] == 1 else ""
             print("正規化した式：" + display_expr(target["lhs"]) + " = " + display_expr(target["rhs"])
-                  + "。条件：n は整数、x は実数、" + "、".join(condition_labels(target)) + "。", file=sys.stderr)
+                  + "。条件：" + prefix + "、".join(condition_labels(target)) + "。", file=sys.stderr)
             if args.archive:
                 record = archive.register_failure({"status": "unresolved", "reason": "parsed_input_only"},
                                                   args.archive_dir, request=target, original_input=original_input,
@@ -108,11 +109,16 @@ def main() -> int:
                 data = load_json(args.input)
             else:
                 data = parse_identity(original_input, args.conditions)
-                data["proof"] = {"mode": "direct", "recipe": args.recipe or "bessel"}
+                data["proof"] = ({"mode": "diagnostic"} if data["schema_version"] == 2 else
+                                 {"mode": "direct", "recipe": args.recipe or "bessel"})
             if is_json and args.recipe:
                 if not isinstance(data, dict) or "proof" in data:
                     raise InputError("Use --recipe only for a target JSON that has no proof candidate.")
+                if data.get("schema_version") == 2:
+                    raise InputError("Version 2 uses diagnostics; omit --recipe.")
                 data["proof"] = {"mode": "direct", "recipe": args.recipe}
+            if isinstance(data, dict) and data.get("schema_version") == 2 and "proof" not in data:
+                data["proof"] = {"mode": "diagnostic"}
             result = verify(data, args.output, args.timeout)
             if args.archive:
                 record = archive.register_verification(args.output, args.archive_dir, original_input=original_input,

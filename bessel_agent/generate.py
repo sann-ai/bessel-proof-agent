@@ -157,6 +157,20 @@ def _generate(target: dict, route: str, output_dir: Path, *, model: str | None,
         raise ValueError("出力先が既に存在します。別のディレクトリを指定してください。")
     output_dir.mkdir(parents=True)
     (output_dir / "target.json").write_text(json.dumps(target, ensure_ascii=False, indent=2) + "\n")
+    if target["schema_version"] == 2:
+        request = {**target, "proof": {"mode": "diagnostic"}}
+        result = verify(request, output_dir / "verification", timeout=min(timeout, 60))
+        result = {**result, "generation": {"ai_called": False, "requested_route": route,
+                   "reason": "version_2_uses_scoped_diagnostics"}}
+        if archive_root is not None:
+            from .archive import register_verification
+            record = register_verification(output_dir / "verification", archive_root,
+                                           original_input=original_input, request=request,
+                                           provenance={"provider": "diagnostic", "ai_called": False,
+                                                       "requested_route": route})
+            result["archive_id"] = record["id"]
+        (output_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        return result
     if archive_root is not None:
         from .archive import find_exact, register_verification, replay_record
         skipped = []

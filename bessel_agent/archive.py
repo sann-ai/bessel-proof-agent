@@ -17,7 +17,8 @@ from .core import (ROOT, InputError, condition_labels, display_expr, environment
 
 STATES = {"proved", "refuted", "unresolved", "needs_conditions"}
 VERIFICATION_FILES = {"request.json", "result.json", "certificate.lean",
-                      "proof_attempt.lean", "refutation_attempt.lean", "report.md"}
+                      "proof_attempt.lean", "refutation_attempt.lean", "report.md",
+                      "conditional_certificate.lean", "analysis.json", "numerical.json"}
 ENTRY_FILES = {"record.json", "request.json", "candidate.json", "original_input.txt", "detail.md"}
 ENTRY_FILES |= {"verification/" + name for name in VERIFICATION_FILES}
 RECORD_ID = re.compile(r"[a-f0-9]{32}\Z")
@@ -38,6 +39,9 @@ def canonical_target(target: dict) -> dict:
     result = dict(target)
     result.pop("proof", None)
     validate_request(result, require_proof=False)
+    if result["schema_version"] == 2:
+        result["assumptions"] = sorted(result["assumptions"], key=lambda atom: _json_bytes(atom))
+        return result
     atoms = normalized_conditions(result)
     result.pop("extra_conditions", None)
     if atoms:

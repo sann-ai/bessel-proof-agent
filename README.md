@@ -2,7 +2,9 @@
 
 整数次数・固定有理数次数の第1種ベッセル関数について、構造化した恒等式の証明候補をAIが作り、Leanで検証する実装です。式全体を扱う直接経路と、一つずつ等式変形を検査して連結する段階経路を備えます。
 
-初期対象は、すべての整数 `n` と正の実数 `x` に対する等式です。`J n x` は mathlib の `Complex.besselJ (n : ℂ) (x : ℂ)` と定義し、等式を複素数上で検査します。整数次数の符号関係、一般三項漸化式、微分公式、定積分を扱います。固定した有理数次数も入力できます。
+第2種の `Y`、交差積 `X`、複数の実変数、関数値を含む根の条件は、追加の診断経路で受け付けます。元の式と条件を保持して、自然言語の解析、条件付きLean証明、有限個の点での数値診断を保存します。[Y・交差積・根の条件](#第2種y交差積x根の条件を含む式)を参照してください。
+
+既存の証明経路（schema version 1）の対象は、すべての整数 `n` と正の実数 `x` に対する等式です。`J n x` は mathlib の `Complex.besselJ (n : ℂ) (x : ℂ)` と定義し、等式を複素数上で検査します。整数次数の符号関係、一般三項漸化式、微分公式、定積分を扱います。固定した有理数次数も入力できます。
 
 利用者の検証履歴は、`--archive` を指定すると本体外の `~/BesselProofAgentData/archive` に保存します。
 4状態の結果・元入力・条件・証拠を追記し、Markdown目録とJSON索引から検索できます。
@@ -66,13 +68,13 @@ python3 -m bessel_agent parse examples/recurrence.txt --output runs/target.json
 python3 -m bessel_agent verify examples/recurrence.txt --recipe recurrence --output runs/recurrence
 ```
 
-`parse` は解釈した式をJSONで保存し、正規化した式と全条件を標準エラー出力にも表示します。条件は末尾のセミコロン、末尾の `\text{for }`、または `--conditions 'n integer, x > 0'` で指定します。変数 `n` が現れる式・条件では整数条件を明示し、正の実数 `x` を扱う条件を全入力で指定します。対応する条件が欠ける場合、積分変数の束縛が曖昧な場合、分母の非零条件が不足する場合は、条件確認待ちになります。
+`parse` は解釈した式をJSONで保存し、正規化した式と全条件を標準エラー出力にも表示します。条件は末尾のセミコロン、末尾の `\text{for }`、または `--conditions 'n integer, x > 0'` で指定します。以下のschema version 1の証明経路では、変数 `n` が現れる式・条件に整数条件を明示し、正の実数 `x` を扱う条件を指定します。対応する条件が欠ける場合、積分変数の束縛が曖昧な場合、分母の非零条件が不足する場合は、条件確認待ちになります。
 
 対応する表記は `J_n(x)`、`J_{n+1}(x)`、`J(n,x)`、括弧、加減乗除、隣接する因子の積、`\frac`、整数冪、`D(J_n(x))`、`\frac{d}{dx} J_n(x)`、`int(0,x,t*J_0(t),t)`、`\int_0^x t J_0(t) dt` です。次数の `1/2` などの固定有理数は既約分数へ正規化します。無指定の変数・分岐条件は入力時に確認します。
 
 追加条件は `x` または整数 `n` と固定有理数との比較 `>`, `>=`, `<`, `<=`, `=`, `!=` を最大8件組み合わせます。例えば `0 < x < 1`、`n >= 2, n != 3`、`x != 1/2` に対応します。有理数は既約の分子・分母で保存し、分子の絶対値と正の分母を1000以下に制限します。日本語の `nは整数、xは正の実数` も入力できます。`x > 1` などから導かれる基底条件 `x > 0` は、正規化したJSONに併記します。
 
-各条件は元のLean命題に明示的な前提として含めます。区間の矛盾、整数条件と両立しない等値、有限区間の全整数の除外を入力時に検査します。条件と同じ一次等式を結論に置く入力も条件確認待ちにします。`x != 1` は `(x-1)` による除算、`0 < x < 1` は `sqrt(1-x)` の定義域確認に利用できます。`n = 0` のもとで `J_n(x)=J_0(x)` を検査するには `conditions` 操作を使います。変数間の比較やBessel値を含む仮定は今後の対応範囲です。
+各条件は元のLean命題に明示的な前提として含めます。区間の矛盾、整数条件と両立しない等値、有限区間の全整数の除外を入力時に検査します。条件と同じ一次等式を結論に置く入力も条件確認待ちにします。`x != 1` は `(x-1)` による除算、`0 < x < 1` は `sqrt(1-x)` の定義域確認に利用できます。`n = 0` のもとで `J_n(x)=J_0(x)` を検査するには `conditions` 操作を使います。Bessel値の根・非零条件を含む入力は、次節の診断経路で扱います。
 
 ```sh
 python3 -m bessel_agent verify examples/conditions-specialization.txt --recipe conditions --output runs/specialization
@@ -99,6 +101,36 @@ D(\B{1/2}{x})=1/(2*x)*\B{1/2}{x}-\B{3/2}{x}; x > 0
 マクロは最大4個、引数個数を `[0]`〜`[3]` で明示し、呼び出しの各引数を `{...}` で囲みます。名前は英字1〜16文字、本体は512文字以内です。`\def\B#1#2{J_{#1}(#2)}` と `\DeclareMathOperator{\B}{J}` も使用できます。宣言した引数はすべて本体中で使い、式や条件の行を引数へ埋め込む入力は拒否します。組込み名の上書き、未定義参照、直接・相互再帰を拒否します。グループの深さ16、展開の深さ8、呼び出し128回、展開後32768文字を上限とし、展開後の式を同じ数式parserで検査します。
 
 論文表記では `equation`、`equation*`、`align`、`align*`、`aligned`、`\left` / `\right`、`\dfrac` / `\tfrac`、`\operatorname{J}`、`J'_n(x)` / `J_n'(x)` に対応します。primeは引数が現在の微分変数そのものの場合に受理し、合成関数には `D(...)` を使います。複数行は、2行目以降が明示的な `+`、`-`、`=` で続く単一等式に限ります。独立した複数式、複数環境、未知の命令、不一致の数式区切りは確認待ちまたは入力エラーとなり、行を削除せずに停止します。
+
+## 第2種Y・交差積X・根の条件を含む式
+
+診断経路（schema version 2）は、正の実引数での `J` と `Y`、および
+
+\[
+X_{nm}(s,t)=J_n(s)Y_m(t)-Y_n(s)J_m(t)
+\]
+
+を扱います。`Y_n(x)` / `Y(n,x)`、`X_01(s,t)` / `X_{0,1}(s,t)` / `X(0,1,s,t)` を入力でき、`λ`・`\lambda` は `lambda` に正規化します。実変数は `x, z, lambda, s, w, t`、整数次数の変数は `n`（`n integer` が必要）です。各変数と有理数の比較に加え、`X_01(z,lambda*z)=0` や `Y_0(x)!=0` を条件として保存します。対応する入力から診断経路を自動選択します。
+
+`examples/cross-product-root.txt` は次の式を収録しています。
+
+```text
+X_00(z,lambda*z)^2/(X_01(z,z)^2+lambda^2*X_00(z,lambda*z)*X_02(z,lambda*z)) = (1/lambda)*X_00(z,lambda*z)/(X_11(z,lambda*z)-lambda*X_00(z,lambda*z)); 0 < lambda < 1, z > 0, X_01(z,lambda*z)=0
+```
+
+```sh
+mkdir -p runs
+python3 -m bessel_agent parse examples/cross-product-root.txt --output runs/cross-product-target.json
+python3 -m bessel_agent verify examples/cross-product-root.txt --output runs/cross-product --archive
+```
+
+この式と条件の構造を認識した場合、漸化式、Wronskian、分母の正値性の積分表示に基づく解析を保存し、明示した仮定から分数式を導くLean証明を検査します。出力は `request.json`、`result.json`、`report.md`、`analysis.json`、`numerical.json`、`conditional_certificate.lean` です。Bessel Yの定義・漸化式・Wronskian・積分正値性をLeanへ接続する工程が残るため、元命題の状態は `unresolved`、条件付き代数証明の成否は別項目に記録します。数学的な対応は[数学ノート](docs/mathematics.md#第2種yと交差積の診断経路)を参照してください。
+
+この例の正常な診断結果は `status: unresolved`、`full_bessel_proof: false` で、Leanの代数検査が通ると `conditional_lean.accepted: true` となります。`verify` の終了コードは、元命題の形式証明が残ることを表す `1` です。
+
+数値診断は、利用中のPythonに既に `mpmath` がある場合に実行し、有限個の標本、根の近似、残差、収束状況を記録します。未導入時は `backend_unavailable` を保存し、入力の解析、条件付きLean検査、アーカイブ保存を続けます。一般のY・複数変数の式は対応範囲と残る検査事項を保存します。複数の根条件の探索、微積分、複素枝を含む入力は、診断で扱える範囲を理由とともに報告します。
+
+根の数値探索は、正の有限区間での符号変化から、パラメータ標本ごとに最大3根を精密化します。60桁計算を用い、探索範囲・許容差・時間制限は `numerical.json` に記録します。標本と符号走査による探索範囲を `root_search.exhaustive: false` と明示します。
 
 ## 今回追加した数学
 
@@ -227,7 +259,7 @@ python3 -m bessel_agent.numeric examples/numeric-derivative-candidate.target.jso
 
 - **proved / 証明済み**: 固定した全称命題をLeanが検査し、依存公理監査を通過。
 - **refuted / 反証済み**: 固定した全称命題の否定をLeanが検査し、依存公理監査を通過。
-- **unresolved / 未解決**: 許可した証明操作で完了しない、入力が不正、または実行制限に到達。
+- **unresolved / 未解決**: 許可した証明操作で完了しない、入力が不正、または実行制限に到達。Y・交差積の診断では、条件付きLean証明や数値結果を保存していても、元命題の形式証明が残る間はこの状態を使う。
 - **needs_conditions / 条件確認待ち**: 対応する定義域条件の確認が必要。
 
 ## 検証の境界

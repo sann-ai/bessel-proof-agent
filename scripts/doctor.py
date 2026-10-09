@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
@@ -66,6 +67,9 @@ def main() -> int:
         print(f"{'OK' if ok else '要準備'}: {message}")
     print("保存証明の検査にAI認証は不要です。準備・更新手順: docs/setup.md")
     print("個人記録の既定保存先: ~/BesselProofAgentData/archive（この診断では作成しません）")
+    backend = importlib.util.find_spec("mpmath")
+    print("数値診断v2: " + ("既存mpmathを利用可能" if backend else
+          "mpmath未導入のため backend_unavailable。構造化・解析テンプレート・条件付きLean・archiveは利用可能"))
     return 0 if all(ok for ok, _ in checks) else 1
 
 

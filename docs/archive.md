@@ -71,6 +71,13 @@ python3 -m bessel_agent.generate demo/target.json --route direct \
 条件を変更した命題や、数学的変形で同値になる別の式は、それぞれの入力として扱います。
 同一命題の再試行には毎回新しい記録IDを付けます。
 
+Y・交差積のschema version 2でも、変数、スカラー条件、関数値の根・非零条件を
+命題IDに含めます。診断結果、自然言語解析、条件付きLean証明、数値結果を保存し、
+元命題は `unresolved`、定義域条件の確認が必要な入力は `needs_conditions` として記録します。条件付き証明の再検査結果も、元命題の
+完全なLean証明の再検査と区別して返します。条件付きLeanの再検査が通った場合は
+`conditional_replayed: true`、`full_bessel_proof: false`、`replayed: false` を返し、
+CLIの終了コードは `1` です。
+
 保存先はコマンドごとの `--archive-dir PATH`、環境変数 `BESSEL_ARCHIVE_DIR`、
 既定の保存先の順で選びます。`verify`・`parse`・`generate` では
 `--archive-dir` と `--archive` を併用します。

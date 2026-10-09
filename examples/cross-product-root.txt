@@ -1,0 +1,1 @@
+X_00(z,lambda*z)^2/(X_01(z,z)^2+lambda^2*X_00(z,lambda*z)*X_02(z,lambda*z)) = (1/lambda)*X_00(z,lambda*z)/(X_11(z,lambda*z)-lambda*X_00(z,lambda*z)); 0 < lambda < 1, z > 0, X_01(z,lambda*z) = 0

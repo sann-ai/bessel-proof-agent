@@ -231,6 +231,9 @@ def evaluate(node: dict, n: int, x: Decimal) -> Decimal:
 
 def diagnose(target: dict) -> dict:
     validate_request(target, require_proof=False)
+    if target["schema_version"] == 2:
+        from .real_numeric import diagnose as diagnose_real
+        return diagnose_real(target)
     conditions = normalized_conditions(target)
     mismatches = []
     skipped = set()

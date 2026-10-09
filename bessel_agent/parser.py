@@ -14,7 +14,7 @@ from .core import InputError, NeedsConditions, _condition_domains, validate_requ
 
 
 TOKEN = re.compile(r"\s+|\\[A-Za-z]+|\\[,!;:]|[0-9]+|[A-Za-z]+|[_^{}()+\-*/=,;']")
-TEX_BUILTINS = {"frac", "dfrac", "tfrac", "int", "sqrt", "left", "right", "cdot", "times", "operatorname"}
+TEX_BUILTINS = {"frac", "dfrac", "tfrac", "int", "sqrt", "left", "right", "cdot", "times", "operatorname", "lambda"}
 TEX_RESERVED = TEX_BUILTINS | {"newcommand", "def", "DeclareMathOperator", "begin", "end", "text", "quad", "qquad", "in", "mathbb", "le", "leq", "ge", "geq", "ne", "neq", "prime"}
 
 
@@ -230,7 +230,11 @@ def _convert(node: dict, sort: str = "complex", bound: str = "x") -> dict:
 
 
 class _Parser:
-    def __init__(self, text: str):
+    def __init__(self, text: str, *, extended: bool = False):
+        self.extended = extended
+        self.variables = {"n", "x", "t"} | ({"z", "lambda", "s", "w"} if extended else set())
+        if extended:
+            text = text.replace(r"\lambda", " lambda ").replace("λ", " lambda ")
         text = text.replace("−", "-").replace(r"\prime", "'").strip()
         text = re.sub(r"\\(?:frac|dfrac|tfrac)\s*\{\s*d\s*\}\s*\{\s*d\s*([xt])\s*\}", lambda m: " D" + m[1] + " ", text)
         text = re.sub(r"\bd\s*/\s*d\s*([xt])\b", lambda m: " D" + m[1] + " ", text)
@@ -288,7 +292,7 @@ class _Parser:
 
     def _starts_atom(self) -> bool:
         token = self.peek()
-        return token is not None and (token.isdigit() or token in {"n", "x", "t", "J", "D", "Dx", "Dt", "int", "sqrt", "(", "{", r"\frac", r"\int", r"\sqrt"})
+        return token is not None and (token.isdigit() or token in self.variables or token in {"J", "D", "Dx", "Dt", "int", "sqrt", "(", "{", r"\frac", r"\int", r"\sqrt"} or (self.extended and token in {"Y", "X"}))
 
     def unary(self) -> dict:
         if self.peek() == "+":
@@ -324,7 +328,7 @@ class _Parser:
         token = self.take()
         if token.isdigit():
             return _integer(int(token))
-        if token in {"n", "x", "t"}:
+        if token in self.variables:
             return {"op": "var", "name": token}
         raise InputError("A subscript or exponent requires one symbol, number, or grouped expression.")
 
@@ -334,7 +338,7 @@ class _Parser:
             return self.group()
         if token is not None and token.isdigit():
             return _integer(int(self.take()))
-        if token in {"n", "x", "t"}:
+        if token in self.variables:
             return {"op": "var", "name": self.take()}
         if token == r"\frac":
             self.take()
@@ -342,7 +346,35 @@ class _Parser:
         if token in {"sqrt", r"\sqrt"}:
             self.take()
             return {"op": "sqrt", "arg": self.group()}
-        if token == "J":
+        if self.extended and token == "X":
+            self.take()
+            if self.peek() == "_":
+                self.take()
+                grouped = self.peek() == "{"
+                if grouped:
+                    self.take()
+                if self.peek() is not None and re.fullmatch(r"[0-9]{2}", self.peek()):
+                    first, second = map(int, self.take())
+                    orders = [_integer(first), _integer(second)]
+                else:
+                    orders = [self.expression()]
+                    self.take(",")
+                    orders.append(self.expression())
+                if grouped:
+                    self.take("}")
+                self.take("(")
+            else:
+                self.take("(")
+                orders = [self.expression()]
+                self.take(",")
+                orders.append(self.expression())
+                self.take(",")
+            args = [self.expression()]
+            self.take(",")
+            args.append(self.expression())
+            self.take(")")
+            return {"op": "bessel_cross", "orders": orders, "args": args}
+        if token == "J" or (self.extended and token == "Y"):
             self.take()
             prime = self.peek() == "'"
             if prime:
@@ -368,7 +400,7 @@ class _Parser:
                 self.take(",")
                 arg = self.expression()
                 self.take(")")
-            result = {"op": "bessel_j", "order": order, "arg": arg}
+            result = {"op": "bessel_j" if token == "J" else "bessel_y", "order": order, "arg": arg}
             if prime:
                 if arg.get("op") != "var" or arg.get("name") not in {"x", "t"}:
                     raise NeedsConditions("Prime notation requires the explicit argument x or t; use D for a composition.")
@@ -522,7 +554,7 @@ def _paper_notation(text: str) -> tuple[str, str | None]:
             (text[top_end:].strip() and not text[top_end:].lstrip().startswith(";"))):
         raise NeedsConditions("数式環境の外に別の式があります。検証対象を1つにまとめてください。")
     text = "".join(parts)
-    text = re.sub(r"\\operatorname\s*\{J\}", " J ", text)
+    text = re.sub(r"\\operatorname\s*\{([JYX])\}", r" \1 ", text)
     # A text block begins a trailing condition section. Its entire content survives.
     embedded = None
     marker = re.search(r"\\text\b", text)
@@ -566,6 +598,10 @@ def parse_identity(text: str, conditions: str | list[str] | None = None) -> dict
             if conditions is not None:
                 raise NeedsConditions("Conditions were supplied twice; retain one explicit condition list.")
             conditions = embedded.strip(" ,; ")
+        extended = bool(re.search(r"\b(?:Y|X|z|lambda|s|w)\b|[YX](?=_)|\\lambda|λ", text + " " + str(conditions or "")))
+        if extended:
+            from .real_bessel import parse_target
+            return parse_target(text, conditions)
         left, right = _Parser(text).equation()
         extra = _conditions(conditions, _contains_var(left, "n") or _contains_var(right, "n"))
         data = {"schema_version": 1, "assumptions": ["x > 0"],
